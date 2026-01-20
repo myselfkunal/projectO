@@ -1,7 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
 from datetime import timedelta
+import logging
 from app.core.database import get_db
+from app.core.config import settings
 from app.core.security import create_access_token
 from app.schemas.user import (
     UserCreate, LoginRequest, TokenResponse, EmailVerificationRequest,
@@ -14,14 +18,20 @@ from app.utils.user_service import (
 from app.utils.email import send_verification_email, generate_verification_token
 from app.utils.user_service import create_verification_token
 
+logger = logging.getLogger(__name__)
+limiter = Limiter(key_func=get_remote_address)
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.post("/register", response_model=UserResponse)
-async def register(user_create: UserCreate, db: Session = Depends(get_db)):
-    """Register a new user"""
+@limiter.limit(f"{settings.RATE_LIMIT_AUTH}/minute")
+async def register(request, user_create: UserCreate, db: Session = Depends(get_db)):
+    """Register a new user with rate limiting"""
+    logger.info(f"Registration attempt for email: {user_create.email}")
+    
     # Validate email domain
     if not user_create.email.endswith("@kiit.ac.in"):
+        logger.warning(f"Invalid email domain: {user_create.email}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Only @kiit.ac.in email addresses are allowed"
@@ -30,6 +40,7 @@ async def register(user_create: UserCreate, db: Session = Depends(get_db)):
     # Check if email already exists
     existing_user = get_user_by_email(db, user_create.email)
     if existing_user:
+        logger.warning(f"Email already registered: {user_create.email}")
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Email already registered"
@@ -37,25 +48,29 @@ async def register(user_create: UserCreate, db: Session = Depends(get_db)):
     
     # Create user
     db_user = create_user(db, user_create)
-    db.commit()  # Ensure user is saved
+    db.commit()
     
     # Generate and create verification token
     token = generate_verification_token()
     verification_token_obj = create_verification_token(db, db_user.id, token)
-    db.commit()  # Ensure token is saved
+    db.commit()
     
-    # Send verification email (for testing, token is printed to logs)
+    # Send verification email
     email_sent = await send_verification_email(db_user.email, token, db_user.username)
-    # Don't fail if email sending fails - token is in database for testing
+    logger.info(f"User registered successfully: {db_user.email}")
     
     return db_user
 
 
 @router.post("/verify-email", response_model=TokenResponse)
-async def verify_email(verify_data: EmailVerificationConfirm, db: Session = Depends(get_db)):
-    """Verify email with token"""
+@limiter.limit(f"{settings.RATE_LIMIT_AUTH}/minute")
+async def verify_email(request, verify_data: EmailVerificationConfirm, db: Session = Depends(get_db)):
+    """Verify email with token - rate limited"""
+    logger.info("Email verification attempt")
+    
     verification_token = get_verification_token(db, verify_data.token)
     if not verification_token:
+        logger.warning("Invalid or expired verification token used")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid or expired verification token"
@@ -65,9 +80,10 @@ async def verify_email(verify_data: EmailVerificationConfirm, db: Session = Depe
     verify_user_email(db, user)
     verification_token.is_used = True
     db.commit()
+    logger.info(f"Email verified for user: {user.email}")
     
     # Create access token
-    access_token_expires = timedelta(minutes=30)
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={"sub": user.id},
         expires_delta=access_token_expires
@@ -81,32 +97,39 @@ async def verify_email(verify_data: EmailVerificationConfirm, db: Session = Depe
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(login_data: LoginRequest, db: Session = Depends(get_db)):
-    """Login user"""
+@limiter.limit(f"{settings.RATE_LIMIT_AUTH}/minute")
+async def login(request, login_data: LoginRequest, db: Session = Depends(get_db)):
+    """Login user - rate limited"""
+    logger.info(f"Login attempt for email: {login_data.email}")
+    
     user = authenticate_user(db, login_data.email, login_data.password)
     if not user:
+        logger.warning(f"Failed login attempt for email: {login_data.email}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password"
         )
     
     if not user.is_verified:
+        logger.warning(f"Login attempt with unverified email: {login_data.email}")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Email not verified"
         )
     
     if not user.is_active:
+        logger.warning(f"Login attempt for inactive user: {login_data.email}")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User account is inactive"
         )
     
-    access_token_expires = timedelta(minutes=30)
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={"sub": user.id},
         expires_delta=access_token_expires
     )
+    logger.info(f"Successful login for user: {login_data.email}")
     
     return {
         "access_token": access_token,
