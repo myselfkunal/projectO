@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from datetime import timedelta
 import logging
@@ -23,7 +23,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.post("/register", response_model=UserResponse)
 @limiter.limit(f"{settings.RATE_LIMIT_AUTH}/minute")
-async def register(request, user_create: UserCreate, db: Session = Depends(get_db)):
+async def register(request: Request, user_create: UserCreate, db: Session = Depends(get_db)):
     """Register a new user with rate limiting"""
     logger.info(f"Registration attempt for email: {user_create.email}")
     
@@ -62,7 +62,7 @@ async def register(request, user_create: UserCreate, db: Session = Depends(get_d
 
 @router.post("/verify-email", response_model=TokenResponse)
 @limiter.limit(f"{settings.RATE_LIMIT_AUTH}/minute")
-async def verify_email(request, verify_data: EmailVerificationConfirm, db: Session = Depends(get_db)):
+async def verify_email(request: Request, verify_data: EmailVerificationConfirm, db: Session = Depends(get_db)):
     """Verify email with token - rate limited"""
     logger.info("Email verification attempt")
     
@@ -96,7 +96,7 @@ async def verify_email(request, verify_data: EmailVerificationConfirm, db: Sessi
 
 @router.post("/login", response_model=TokenResponse)
 @limiter.limit(f"{settings.RATE_LIMIT_AUTH}/minute")
-async def login(request, login_data: LoginRequest, db: Session = Depends(get_db)):
+async def login(request: Request, login_data: LoginRequest, db: Session = Depends(get_db)):
     """Login user - rate limited"""
     logger.info(f"Login attempt for email: {login_data.email}")
     
