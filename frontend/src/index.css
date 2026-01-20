@@ -1,0 +1,40 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  @apply box-border;
+}
+
+html, body, #root {
+  @apply h-full w-full;
+}
+
+body {
+  @apply bg-gray-50 text-gray-900;
+}
+
+/* Video call styles */
+.video-container {
+  @apply relative w-full bg-black rounded-lg overflow-hidden;
+}
+
+.video-stream {
+  @apply w-full h-full object-cover;
+}
+
+.local-video {
+  @apply absolute bottom-4 right-4 w-32 h-24 bg-black rounded-lg overflow-hidden border-2 border-white;
+}
+
+.chat-message {
+  @apply mb-3 p-3 rounded-lg;
+}
+
+.chat-message.sent {
+  @apply bg-blue-500 text-white ml-auto max-w-xs;
+}
+
+.chat-message.received {
+  @apply bg-gray-200 text-gray-900 mr-auto max-w-xs;
+}
