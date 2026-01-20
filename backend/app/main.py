@@ -10,8 +10,12 @@ from sqlalchemy import text
 from app.core.config import settings
 from app.core.database import Base, engine, SessionLocal
 from app.core.limiter import limiter
-from app.routes import auth, users, calls
+from app.core.sentry import init_sentry
+from app.routes import auth, users, calls, webrtc
 from app.models.user import User, Call, BlockedUser, Report, VerificationToken
+
+# Initialize Sentry for error tracking
+init_sentry()
 
 # Configure structured logging
 logging_config = {
@@ -95,6 +99,7 @@ async def error_handler_middleware(request: Request, call_next):
 app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(calls.router)
+app.include_router(webrtc.router)
 
 
 @app.get("/health")

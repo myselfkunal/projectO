@@ -28,6 +28,14 @@ class Settings(BaseSettings):
     RATE_LIMIT_AUTH: int = 10
     RATE_LIMIT_API: int = 60
     
+    # Sentry Error Tracking
+    SENTRY_DSN: str = ""
+    SENTRY_TRACES_SAMPLE_RATE: float = 0.1  # 10% of transactions
+    
+    # App Metadata
+    APP_VERSION: str = "1.0.0"
+    DEBUG: bool = False
+    
     class Config:
         env_file = ".env"
 

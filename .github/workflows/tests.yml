@@ -1,0 +1,159 @@
+name: Run Tests
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  test-backend:
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: unilink_user
+          POSTGRES_PASSWORD: testpass
+          POSTGRES_DB: unilink_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+        cache: 'pip'
+    
+    - name: Install dependencies
+      run: |
+        cd backend
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt -r requirements-dev.txt
+    
+    - name: Run backend tests
+      env:
+        DATABASE_URL: postgresql://unilink_user:testpass@localhost:5432/unilink_test
+      run: |
+        cd backend
+        python -m pytest tests/ -v --cov=app --cov-report=xml --junit-xml=test-results.xml
+    
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        files: ./backend/coverage.xml
+        flags: backend
+        name: backend-coverage
+    
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: backend-test-results
+        path: backend/test-results.xml
+
+  test-frontend:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+    
+    - name: Install dependencies
+      run: |
+        cd frontend
+        npm ci
+    
+    - name: Lint
+      run: |
+        cd frontend
+        npm run lint
+    
+    - name: Build
+      run: |
+        cd frontend
+        npm run build
+    
+    - name: Type check
+      run: |
+        cd frontend
+        npx tsc --noEmit
+    
+    - name: Upload build artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: frontend-build
+        path: frontend/dist
+
+  code-quality:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+    
+    - name: Install dependencies
+      run: |
+        cd backend
+        pip install -r requirements-dev.txt
+    
+    - name: Run linter
+      run: |
+        cd backend
+        python -m pylint app/ --exit-zero || true
+    
+    - name: Run code formatter check
+      run: |
+        cd backend
+        python -m black --check app/ || true
+
+  security-scan:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+    
+    - name: Install dependencies
+      run: |
+        cd backend
+        pip install bandit safety
+    
+    - name: Bandit security scan
+      run: |
+        cd backend
+        bandit -r app/ -f json -o bandit-report.json || true
+    
+    - name: Safety check
+      run: |
+        cd backend
+        safety check --json || true
+    
+    - name: Upload security scan
+      uses: actions/upload-artifact@v3
+      with:
+        name: security-reports
+        path: backend/bandit-report.json
