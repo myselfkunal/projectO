@@ -1,11 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
 from datetime import timedelta
 import logging
 from app.core.database import get_db
 from app.core.config import settings
+from app.core.limiter import limiter
 from app.core.security import create_access_token
 from app.schemas.user import (
     UserCreate, LoginRequest, TokenResponse, EmailVerificationRequest,
@@ -19,7 +18,6 @@ from app.utils.email import send_verification_email, generate_verification_token
 from app.utils.user_service import create_verification_token
 
 logger = logging.getLogger(__name__)
-limiter = Limiter(key_func=get_remote_address)
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 

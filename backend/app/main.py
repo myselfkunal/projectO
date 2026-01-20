@@ -4,12 +4,12 @@ from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 import logging
 import logging.config
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
 from app.core.config import settings
 from app.core.database import Base, engine, SessionLocal
+from app.core.limiter import limiter
 from app.routes import auth, users, calls
 from app.models.user import User, Call, BlockedUser, Report, VerificationToken
 
@@ -40,9 +40,6 @@ logging_config = {
 
 logging.config.dictConfig(logging_config)
 logger = logging.getLogger(__name__)
-
-# Initialize rate limiter
-limiter = Limiter(key_func=get_remote_address, default_limits=[f"{settings.RATE_LIMIT_API}/minute"])
 
 
 @asynccontextmanager
