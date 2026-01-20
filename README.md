@@ -1,12 +1,16 @@
 # UniLink - University 1v1 Video Calling Platform
 
+> **v1.2 - Production Hardening Phase Complete** ✅
+
 ## Project Overview
 
 UniLink is a web-based platform that enables university students to connect with each other through 1v1 video calls with integrated text chat. It uses random matching to pair students in real-time.
 
+**Current Status**: Prototype with production-ready security, monitoring, and error handling
+
 ### Features
 
-- 🔐 University email authentication (sample.kiit.ac.in)
+- 🔐 University email authentication (@kiit.ac.in)
 - 📹 High-quality 1v1 video and audio calls (WebRTC)
 - 💬 Real-time text chat during calls
 - 🎯 Random user matching with queue system
@@ -16,15 +20,39 @@ UniLink is a web-based platform that enables university students to connect with
 - ⏱️ 15-minute call limit (extensible)
 - 🟢 Online/offline status indicator
 - 🌐 Responsive web interface
+- 🔒 **NEW: Rate limiting & CORS hardening**
+- 📊 **NEW: Structured logging & monitoring**
+- ⚡ **NEW: Database performance indexes**
+- 🛡️ **NEW: Frontend error boundary & logging**
+
+## Recent Updates (Phase 2)
+
+### Security Enhancements
+- ✅ Rate limiting (10 req/min on auth, 60 req/min on API)
+- ✅ CORS hardened with origin whitelist
+- ✅ JWT secret strengthened (32+ char config)
+- ✅ Error handling middleware (hides stack traces in production)
+
+### Monitoring & Observability
+- ✅ Structured logging (Python logging module)
+- ✅ Health check endpoint with DB connectivity test (`/health`)
+- ✅ Frontend error boundary with error logging
+- ✅ Global error tracking & unhandled rejection handlers
+
+### Performance
+- ✅ Database indexing (email, username, tokens, calls, blocked_users)
+- ✅ Optimized query paths for login, verification, call history
+- ✅ Frontend bundle size: 224KB (74KB gzipped)
 
 ## Tech Stack
 
 ### Backend
-- **Framework:** FastAPI (Python)
-- **Database:** PostgreSQL
-- **Real-time:** WebSocket
+- **Framework:** FastAPI (Python 3.11)
+- **Database:** PostgreSQL 15
+- **Real-time:** WebSocket + slowapi (rate limiting)
 - **Authentication:** JWT
-- **Video:** WebRTC (STUN + TURN)
+- **Video:** WebRTC (STUN servers)
+- **Logging:** Python logging module
 
 ### Frontend
 - **Framework:** React 18 + TypeScript
@@ -32,10 +60,45 @@ UniLink is a web-based platform that enables university students to connect with
 - **Build:** Vite
 - **State:** Zustand
 - **HTTP:** Axios
+- **Error Handling:** React Error Boundary
 
 ### Infrastructure
 - **Containerization:** Docker & Docker Compose
-- **Deployment:** AWS (EC2 + RDS)
+- **Production Targets:** AWS (ECS/EKS), GCP, Azure
+- **Database:** AWS RDS PostgreSQL recommended
+
+## Quick Start
+
+### Development (Docker)
+
+```bash
+cd docker
+docker-compose up --build -d
+
+# Frontend: http://localhost:3000
+# API Docs: http://localhost:8000/docs
+# Health: http://localhost:8000/health
+```
+
+### Manual Setup
+
+**Backend**:
+```bash
+cd backend
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+python app/main.py
+```
+
+**Frontend**:
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+---
 
 ## Project Structure
 
