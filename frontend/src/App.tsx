@@ -5,7 +5,23 @@ import { Register } from '@/pages/Register'
 import { VerifyEmail } from '@/pages/VerifyEmail'
 import { Login } from '@/pages/Login'
 import { Dashboard } from '@/pages/Dashboard'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
+import { errorLogger } from '@/utils/errorLogger'
 import '@/index.css'
+
+// Log app initialization
+errorLogger.logInfo('UniLink App initialized', {
+  component: 'App',
+  action: 'Application started',
+})
+
+// Catch unhandled promise rejections
+window.addEventListener('unhandledrejection', event => {
+  errorLogger.logError(
+    `Unhandled Promise Rejection: ${event.reason}`,
+    { component: 'App', action: 'Unhandled rejection' }
+  )
+})
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
   const isAuthenticated = useAuthStore(state => state.isAuthenticated)
@@ -29,21 +45,23 @@ export function App() {
   }
 
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/register" element={<Register />} />
-        <Route path="/verify" element={<VerifyEmail />} />
-        <Route path="/login" element={<Login />} />
-        <Route
-          path="/dashboard"
-          element={
-            <ProtectedRoute>
-              <Dashboard />
-            </ProtectedRoute>
-          }
-        />
-        <Route path="/" element={<Navigate to="/dashboard" />} />
-      </Routes>
-    </BrowserRouter>
+    <ErrorBoundary>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/register" element={<Register />} />
+          <Route path="/verify" element={<VerifyEmail />} />
+          <Route path="/login" element={<Login />} />
+          <Route
+            path="/dashboard"
+            element={
+              <ProtectedRoute>
+                <Dashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route path="/" element={<Navigate to="/dashboard" />} />
+        </Routes>
+      </BrowserRouter>
+    </ErrorBoundary>
   )
 }
