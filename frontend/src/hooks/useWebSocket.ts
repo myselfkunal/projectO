@@ -1,22 +1,32 @@
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback, useState } from 'react'
 
 export interface WebSocketMessage {
   type: string
-  [key: string]: any
+  [key: string]: unknown
 }
 
-export const useWebSocket = (userId: string, token: string, onMessage: (msg: WebSocketMessage) => void) => {
+export const useWebSocket = (userId: string, token: string, onMessage: (msg: WebSocketMessage) => void | Promise<void>) => {
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout>>()
+  const shouldReconnectRef = useRef(false)
+  const [isConnected, setIsConnected] = useState(false)
+
+  const buildWebSocketUrl = useCallback(() => {
+    const apiBase = (((import.meta as unknown) as Record<string, Record<string, string>>).env.VITE_API_URL) || window.location.origin
+    const base = new URL(apiBase)
+    const protocol = base.protocol === 'https:' ? 'wss:' : 'ws:'
+    return `${protocol}//${base.host}/calls/ws/${userId}?token=${token}`
+  }, [token, userId])
 
   const connect = useCallback(() => {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const wsUrl = `${protocol}//${window.location.host}/calls/ws/${userId}?token=${token}`
-    
+    if (!userId || !token) return
+
+    shouldReconnectRef.current = true
+    const wsUrl = buildWebSocketUrl()
     wsRef.current = new WebSocket(wsUrl)
 
     wsRef.current.onopen = () => {
-      console.log('WebSocket connected')
+      setIsConnected(true)
     }
 
     wsRef.current.onmessage = (event: MessageEvent) => {
@@ -33,13 +43,14 @@ export const useWebSocket = (userId: string, token: string, onMessage: (msg: Web
     }
 
     wsRef.current.onclose = () => {
-      console.log('WebSocket disconnected')
-      // Attempt to reconnect after 3 seconds
-      reconnectTimeoutRef.current = setTimeout(() => {
-        connect()
-      }, 3000)
+      setIsConnected(false)
+      if (shouldReconnectRef.current) {
+        reconnectTimeoutRef.current = setTimeout(() => {
+          connect()
+        }, 3000)
+      }
     }
-  }, [userId, token, onMessage])
+  }, [buildWebSocketUrl, onMessage, token, userId])
 
   const send = useCallback((message: WebSocketMessage) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
@@ -51,6 +62,7 @@ export const useWebSocket = (userId: string, token: string, onMessage: (msg: Web
     connect()
 
     return () => {
+      shouldReconnectRef.current = false
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current)
       }
@@ -60,5 +72,5 @@ export const useWebSocket = (userId: string, token: string, onMessage: (msg: Web
     }
   }, [connect])
 
-  return { send, isConnected: wsRef.current?.readyState === WebSocket.OPEN }
+  return { send, isConnected }
 }

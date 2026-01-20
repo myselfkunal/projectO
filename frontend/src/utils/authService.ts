@@ -32,7 +32,7 @@ export const authService = {
     return response.data
   },
 
-  async updateProfile(data: any) {
+  async updateProfile(data: Record<string, unknown>) {
     const response = await api.put('/users/me', data)
     return response.data
   },

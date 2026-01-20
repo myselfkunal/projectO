@@ -52,7 +52,7 @@ export class WebRTCManager {
     }
 
     // Handle ICE candidates
-    this.peerConnection.onicecandidate = (event: any) => {
+    this.peerConnection.onicecandidate = (event: RTCPeerConnectionIceEvent) => {
       if (event.candidate) {
         this.onIceCandidate?.(event.candidate)
       }

@@ -2,16 +2,16 @@ services:
   postgres:
     image: postgres:15-alpine
     environment:
-      POSTGRES_USER: projecto_user
-      POSTGRES_PASSWORD: projecto_password
-      POSTGRES_DB: projecto
-      PGDATABASE: projecto
+      POSTGRES_USER: unilink_user
+      POSTGRES_PASSWORD: unilink_password
+      POSTGRES_DB: unilink
+      PGDATABASE: unilink
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U projecto_user -d projecto"]
+      test: ["CMD-SHELL", "pg_isready -U unilink_user -d unilink"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -21,7 +21,7 @@ services:
       context: ../backend
       dockerfile: ../docker/Dockerfile.backend
     environment:
-      DATABASE_URL: postgresql://projecto_user:projecto_password@postgres:5432/projecto
+      DATABASE_URL: postgresql://unilink_user:unilink_password@postgres:5432/unilink
       SECRET_KEY: your-secret-key-change-this
       ALGORITHM: HS256
       ACCESS_TOKEN_EXPIRE_MINUTES: 30

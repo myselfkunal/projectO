@@ -23,6 +23,8 @@ def get_current_user_from_ws(token: str, db: Session):
     
     user_id = payload.get("sub")
     user = get_user_by_id(db, user_id)
+    if not user or not user.is_verified or not user.is_active:
+        return None
     return user
 
 
@@ -206,7 +208,7 @@ def get_call_history(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing authorization"
         )
-    
+
     token = authorization.replace("Bearer ", "")
     payload = decode_token(token)
     
@@ -214,5 +216,9 @@ def get_call_history(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
     
     user_id = payload.get("sub")
+    user = get_user_by_id(db, user_id)
+    if not user or not user.is_verified or not user.is_active:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
+
     calls = get_user_call_history(db, user_id, limit)
     return calls

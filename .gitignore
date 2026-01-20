@@ -1,18 +1,19 @@
-# secrets
+# env
 .env
 .env.*
-!.env.example
 
 # python
+venv/
 __pycache__/
 *.pyc
-venv/
 
 # node
 node_modules/
+frontend/node_modules/
 
-# docker
-*.log
+# build
+dist/
+frontend/dist/
 
 # OS
 .DS_Store

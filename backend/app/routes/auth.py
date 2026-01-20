@@ -53,7 +53,7 @@ async def register(user_create: UserCreate, db: Session = Depends(get_db)):
 
 @router.post("/verify-email", response_model=TokenResponse)
 async def verify_email(verify_data: EmailVerificationConfirm, db: Session = Depends(get_db)):
-    """Verify email with token and set password"""
+    """Verify email with token"""
     verification_token = get_verification_token(db, verify_data.token)
     if not verification_token:
         raise HTTPException(

@@ -46,8 +46,9 @@ export const Register: FC = () => {
         password: '',
         confirmPassword: '',
       })
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Registration failed')
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { detail?: string } } }
+      setError(error.response?.data?.detail || 'Registration failed')
     } finally {
       setLoading(false)
     }
@@ -76,7 +77,7 @@ export const Register: FC = () => {
           <input
             type="email"
             name="email"
-            placeholder="your.email@sample.kiit.ac.in"
+            placeholder="your.email@kiit.ac.in"
             value={formData.email}
             onChange={handleChange}
             required

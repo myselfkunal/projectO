@@ -27,8 +27,9 @@ export const Login: FC = () => {
       setTimeout(() => {
         window.location.href = '/dashboard'
       }, 500)
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Login failed')
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { detail?: string } } }
+      setError(error.response?.data?.detail || 'Login failed')
     } finally {
       setLoading(false)
     }
@@ -49,7 +50,7 @@ export const Login: FC = () => {
         <form onSubmit={handleSubmit} className="space-y-4">
           <input
             type="email"
-            placeholder="your.email@sample.kiit.ac.in"
+            placeholder="your.email@kiit.ac.in"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required

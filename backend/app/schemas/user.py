@@ -41,7 +41,6 @@ class EmailVerificationRequest(BaseModel):
 
 class EmailVerificationConfirm(BaseModel):
     token: str
-    password: str
 
 
 class LoginRequest(BaseModel):

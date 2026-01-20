@@ -1,4 +1,4 @@
-import { useState, useRef, FC } from 'react'
+import { useState, useRef, FC, useCallback } from 'react'
 import { WebRTCManager } from '@/utils/webrtc'
 import { useWebSocket, WebSocketMessage } from '@/hooks/useWebSocket'
 import { VideoDisplay } from '@/components/VideoDisplay'
@@ -20,7 +20,13 @@ export const Dashboard: FC = () => {
   const token = useAuthStore(state => state.token)
   const [page, setPage] = useState<'menu' | 'calling' | 'in-call'>('menu')
   const [queuePosition, setQueuePosition] = useState(0)
-  const [remoteUser, setRemoteUser] = useState<any>(null)
+  interface RemoteUser {
+    id: string
+    username: string
+    profile_picture?: string
+  }
+  const [remoteUser, setRemoteUser] = useState<RemoteUser | null>(null)
+  const remoteUserRef = useRef<RemoteUser | null>(null)
   const [localStream, setLocalStream] = useState<MediaStream | null>(null)
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
@@ -30,46 +36,57 @@ export const Dashboard: FC = () => {
   const callTokenRef = useRef<string>('')
   const messageIdRef = useRef(0)
 
-  const { send: sendWs, isConnected } = useWebSocket(user?.id || '', token || '', handleWebSocketMessage)
-
-  async function handleWebSocketMessage(msg: WebSocketMessage) {
+  const handleWebSocketMessage = useCallback(async (msg: WebSocketMessage) => {
     switch (msg.type) {
       case 'queue_joined':
-        setQueuePosition(msg.queue_position)
+        setQueuePosition(msg.queue_position as number)
         break
 
       case 'match_found':
-        callIdRef.current = msg.call_id
-        callTokenRef.current = msg.call_token
-        setRemoteUser(msg.matched_user)
+        callIdRef.current = msg.call_id as string
+        callTokenRef.current = msg.call_token as string
+        remoteUserRef.current = msg.matched_user as RemoteUser
+        setRemoteUser(msg.matched_user as RemoteUser)
         setPage('in-call')
         setCallStartTime(Date.now())
         await initiateWebRTC(true)
         break
 
       case 'webrtc_offer':
-        await handleWebRTCOffer(msg.offer)
+        if (!remoteUserRef.current && msg.sender_id) {
+          remoteUserRef.current = { id: msg.sender_id as string, username: (msg.sender_username as string) || 'Remote user' }
+          setRemoteUser(remoteUserRef.current)
+        }
+        await handleWebRTCOffer(msg.offer as RTCSessionDescription)
         break
 
       case 'webrtc_answer':
-        await handleWebRTCAnswer(msg.answer)
+        await handleWebRTCAnswer(msg.answer as RTCSessionDescription)
         break
 
       case 'webrtc_ice':
-        await webrtcRef.current.addIceCandidate(msg.candidate)
+        await webrtcRef.current.addIceCandidate(msg.candidate as RTCIceCandidateInit)
         break
 
       case 'chat_message':
-        addMessage(msg.sender_username, msg.message, false, msg.sender_id)
+        addMessage(msg.sender_username as string, msg.message as string, false, msg.sender_id as string)
         break
 
       case 'call_ended':
-        endCall()
+        // Will call endCall via direct reference after it's defined
+        webrtcRef.current.cleanup()
+        setRemoteStream(null)
+        remoteUserRef.current = null
+        setRemoteUser(null)
+        setMessages([])
+        setPage('menu')
         break
     }
-  }
+  }, [])
 
-  async function initiateWebRTC(isInitiator: boolean) {
+  const { send: sendWs, isConnected } = useWebSocket(user?.id || '', token || '', handleWebSocketMessage)
+
+  const initiateWebRTC = useCallback(async (isInitiator: boolean) => {
     try {
       const stream = await webrtcRef.current.initialize()
       setLocalStream(stream)
@@ -81,39 +98,44 @@ export const Dashboard: FC = () => {
       })
 
       webrtcRef.current.setOnIceCandidate((candidate) => {
+        if (!remoteUserRef.current) return
         sendWs({
           type: 'webrtc_ice',
           candidate: candidate.candidate,
-          receiver_id: remoteUser.id,
+          receiver_id: remoteUserRef.current.id,
         })
       })
 
       if (isInitiator) {
         const offer = await webrtcRef.current.createOffer()
-        sendWs({
-          type: 'webrtc_offer',
-          offer: offer,
-          receiver_id: remoteUser.id,
-        })
+        if (remoteUserRef.current) {
+          sendWs({
+            type: 'webrtc_offer',
+            offer: offer,
+            receiver_id: remoteUserRef.current.id,
+          })
+        }
       }
     } catch (error) {
       console.error('WebRTC initialization error:', error)
     }
-  }
+  }, [sendWs])
 
-  async function handleWebRTCOffer(offer: RTCSessionDescription) {
+  const handleWebRTCOffer = useCallback(async (offer: RTCSessionDescription) => {
     try {
       await webrtcRef.current.setRemoteDescription(offer)
       const answer = await webrtcRef.current.createAnswer()
-      sendWs({
-        type: 'webrtc_answer',
-        answer: answer,
-        receiver_id: remoteUser.id,
-      })
+      if (remoteUserRef.current) {
+        sendWs({
+          type: 'webrtc_answer',
+          answer: answer,
+          receiver_id: remoteUserRef.current.id,
+        })
+      }
     } catch (error) {
       console.error('Error handling WebRTC offer:', error)
     }
-  }
+  }, [sendWs])
 
   async function handleWebRTCAnswer(answer: RTCSessionDescription) {
     try {
@@ -135,12 +157,12 @@ export const Dashboard: FC = () => {
   }
 
   function handleSendMessage(text: string) {
-    if (remoteUser) {
+    if (remoteUserRef.current) {
       addMessage(user?.username || 'You', text, true, user?.id || '')
       sendWs({
         type: 'chat_message',
         message: text,
-        receiver_id: remoteUser.id,
+        receiver_id: remoteUserRef.current.id,
         timestamp: new Date().toISOString(),
       })
     }
@@ -151,19 +173,20 @@ export const Dashboard: FC = () => {
     sendWs({ type: 'join_queue' })
   }
 
-  function endCall() {
-    if (remoteUser) {
+  const endCall = useCallback(() => {
+    if (remoteUserRef.current) {
       sendWs({
         type: 'end_call',
-        receiver_id: remoteUser.id,
+        receiver_id: remoteUserRef.current.id,
       })
     }
     webrtcRef.current.cleanup()
     setRemoteStream(null)
+    remoteUserRef.current = null
     setRemoteUser(null)
     setMessages([])
     setPage('menu')
-  }
+  }, [sendWs])
 
   function leaveQueue() {
     sendWs({ type: 'leave_queue' })

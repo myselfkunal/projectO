@@ -5,8 +5,6 @@ import { useAuthStore } from '@/context/authStore'
 
 export const VerifyEmail: FC = () => {
   const [searchParams] = useSearchParams()
-  const [password, setPassword] = useState('')
-  const [confirmPassword, setConfirmPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
@@ -26,22 +24,9 @@ export const VerifyEmail: FC = () => {
     setError('')
     setLoading(true)
 
-    if (password !== confirmPassword) {
-      setError('Passwords do not match')
-      setLoading(false)
-      return
-    }
-
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters')
-      setLoading(false)
-      return
-    }
-
     try {
       const response = await api.post('/auth/verify-email', {
         token,
-        password,
       })
 
       setToken(response.data.access_token)
@@ -51,8 +36,9 @@ export const VerifyEmail: FC = () => {
       setTimeout(() => {
         window.location.href = '/dashboard'
       }, 1500)
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Verification failed')
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { detail?: string } } }
+      setError(error.response?.data?.detail || 'Verification failed')
     } finally {
       setLoading(false)
     }
@@ -62,7 +48,7 @@ export const VerifyEmail: FC = () => {
     <div className="min-h-screen bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center p-4">
       <div className="bg-white rounded-lg shadow-lg p-8 w-full max-w-md">
         <h1 className="text-3xl font-bold text-center mb-2 text-gray-900">Verify Email</h1>
-        <p className="text-center text-gray-600 mb-8">Set your password to complete registration</p>
+        <p className="text-center text-gray-600 mb-8">Complete your registration</p>
 
         {success && (
           <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-6">
@@ -77,24 +63,6 @@ export const VerifyEmail: FC = () => {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-
-          <input
-            type="password"
-            placeholder="Confirm Password"
-            value={confirmPassword}
-            onChange={(e) => setConfirmPassword(e.target.value)}
-            required
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-
           <button
             type="submit"
             disabled={loading || !token}

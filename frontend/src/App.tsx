@@ -1,4 +1,4 @@
-import { ReactNode, FC } from 'react'
+import { ReactNode, useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useAuthStore } from '@/context/authStore'
 import { Register } from '@/pages/Register'
@@ -13,6 +13,21 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
 }
 
 export function App() {
+  const initialized = useAuthStore(state => state.initialized)
+  const initAuth = useAuthStore(state => state.init)
+
+  useEffect(() => {
+    initAuth()
+  }, [initAuth])
+
+  if (!initialized) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-100 text-gray-700">
+        Loading...
+      </div>
+    )
+  }
+
   return (
     <BrowserRouter>
       <Routes>

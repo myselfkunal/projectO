@@ -17,6 +17,10 @@ async def send_verification_email(email: str, token: str, username: str) -> bool
         print(f"VERIFICATION TOKEN FOR {email}")
         print(f"Token: {token}")
         print(f"{'='*60}\n")
+
+        if not settings.SMTP_USER or not settings.SMTP_PASSWORD:
+            logger.warning("SMTP credentials missing; skipping email send in dev mode")
+            return True
         
         subject = "Verify Your UniLink Account"
         verification_link = f"{settings.FRONTEND_URL}/verify?token={token}"
