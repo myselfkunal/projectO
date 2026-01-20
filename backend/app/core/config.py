@@ -11,11 +11,8 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     
-    # Email
-    SMTP_SERVER: str = "smtp.gmail.com"
-    SMTP_PORT: int = 587
-    SMTP_USER: str = ""
-    SMTP_PASSWORD: str = ""
+    # Email - SendGrid
+    SENDGRID_API_KEY: str = ""
     EMAIL_FROM: str = ""
     FRONTEND_URL: str = "http://localhost:3000"
     
