@@ -11,6 +11,14 @@ class UserRole(str, enum.Enum):
     ADMIN = "admin"
 
 
+class CallStatus(str, enum.Enum):
+    PENDING = "pending"
+    ONGOING = "ongoing"
+    COMPLETED = "completed"
+    REJECTED = "rejected"
+    MISSED = "missed"
+
+
 class User(Base):
     __tablename__ = "users"
     
@@ -47,7 +55,7 @@ class Call(Base):
     started_at = Column(DateTime, default=datetime.utcnow)
     ended_at = Column(DateTime, nullable=True)
     duration_seconds = Column(Integer, default=0)
-    status = Column(String, default="ongoing")  # ongoing, completed, missed
+    status = Column(SQLEnum(CallStatus), default=CallStatus.PENDING)
     call_token = Column(String, unique=True, nullable=False)
     
     # Relationships

@@ -1,31 +1,314 @@
-from fastapi import APIRouter, Depends, HTTPException, status, WebSocket, WebSocketDisconnect
+"""Calls API routes for initiating, accepting, and managing video calls"""
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
-from app.core.database import get_db
-from app.core.security import decode_token
-from app.utils.matching_service import matchmaking_queue, create_call, end_call, get_user_call_history
-from app.utils.user_service import get_user_by_id, is_user_blocked
-from app.schemas.user import CallResponse
-from typing import Dict, List
-import json
+import logging
 
+from app.core.database import get_db
+from app.core.config import settings
+from app.core.limiter import limiter
+from app.core.security import get_current_user, decode_token
+from app.models.user import User
+from app.schemas.call import (
+    CallCreate, CallResponse, AvailableUserResponse
+)
+from app.utils.call_service import (
+    create_call, accept_call, reject_call, end_call,
+    get_call_by_id, get_user_call_history, get_active_call,
+    get_pending_call_for_user
+)
+from app.utils.user_service import (
+    get_available_users, get_user_by_id, is_user_blocked
+)
+
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/calls", tags=["calls"])
 
-# Store active connections
-active_connections: Dict[str, WebSocket] = {}
-user_calls: Dict[str, str] = {}  # Maps user_id to call_id
+# Store active WebSocket connections for real-time updates
+active_connections: dict[str, list] = {}
 
 
-def get_current_user_from_ws(token: str, db: Session):
-    """Extract user from WebSocket token"""
-    payload = decode_token(token)
-    if not payload:
-        return None
-    
-    user_id = payload.get("sub")
-    user = get_user_by_id(db, user_id)
-    if not user or not user.is_verified or not user.is_active:
-        return None
-    return user
+@router.get("/available", response_model=list[AvailableUserResponse])
+@limiter.limit(f"{settings.RATE_LIMIT_API}/minute")
+async def get_available_users_endpoint(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get list of available users online and not blocked"""
+    try:
+        available_users = get_available_users(db, current_user.id, limit=20)
+        logger.info(f"User {current_user.username} fetched {len(available_users)} available users")
+        return available_users
+    except Exception as e:
+        logger.error(f"Error fetching available users: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error fetching available users"
+        )
+
+
+@router.post("/initiate", response_model=CallResponse)
+@limiter.limit(f"{settings.RATE_LIMIT_API}/minute")
+async def initiate_call(
+    request: Request,
+    call_create: CallCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Initiate a call to another user"""
+    try:
+        # Check if receiver exists
+        receiver = get_user_by_id(db, call_create.receiver_id)
+        if not receiver:
+            logger.warning(f"Call initiation failed: Receiver {call_create.receiver_id} not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Receiver not found"
+            )
+
+        # Check if receiver is online
+        if not receiver.is_online:
+            logger.warning(f"Call initiation failed: Receiver {receiver.username} is offline")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Receiver is not online"
+            )
+
+        # Check if blocked
+        if is_user_blocked(db, current_user.id, receiver.id):
+            logger.warning(f"Call initiation failed: {current_user.username} is blocked by {receiver.username}")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You cannot call this user"
+            )
+
+        # Check if there's already an active call
+        active_call = get_active_call(db, current_user.id)
+        if active_call:
+            logger.warning(f"User {current_user.username} already has an active call")
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="You already have an active call"
+            )
+
+        # Create the call
+        call = create_call(db, current_user.id, call_create.receiver_id)
+        logger.info(f"Call initiated: {current_user.username} -> {receiver.username}")
+        
+        return call
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error initiating call: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error initiating call"
+        )
+
+
+@router.post("/accept/{call_id}", response_model=CallResponse)
+@limiter.limit(f"{settings.RATE_LIMIT_API}/minute")
+async def accept_call_endpoint(
+    request: Request,
+    call_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Accept an incoming call"""
+    try:
+        call = get_call_by_id(db, call_id)
+        if not call:
+            logger.warning(f"Call acceptance failed: Call {call_id} not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Call not found"
+            )
+
+        # Check if current user is the receiver
+        if call.receiver_id != current_user.id:
+            logger.warning(f"Call acceptance failed: {current_user.username} is not the receiver")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You are not the receiver of this call"
+            )
+
+        # Accept the call
+        call = accept_call(db, call_id)
+        logger.info(f"Call accepted: {call_id}")
+        
+        return call
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error accepting call: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error accepting call"
+        )
+
+
+@router.post("/reject/{call_id}", response_model=CallResponse)
+@limiter.limit(f"{settings.RATE_LIMIT_API}/minute")
+async def reject_call_endpoint(
+    request: Request,
+    call_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Reject an incoming call"""
+    try:
+        call = get_call_by_id(db, call_id)
+        if not call:
+            logger.warning(f"Call rejection failed: Call {call_id} not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Call not found"
+            )
+
+        # Check if current user is the receiver
+        if call.receiver_id != current_user.id:
+            logger.warning(f"Call rejection failed: {current_user.username} is not the receiver")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You are not the receiver of this call"
+            )
+
+        # Reject the call
+        call = reject_call(db, call_id)
+        logger.info(f"Call rejected: {call_id}")
+        
+        return call
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error rejecting call: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error rejecting call"
+        )
+
+
+@router.post("/end/{call_id}", response_model=CallResponse)
+@limiter.limit(f"{settings.RATE_LIMIT_API}/minute")
+async def end_call_endpoint(
+    request: Request,
+    call_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """End an ongoing call"""
+    try:
+        call = get_call_by_id(db, call_id)
+        if not call:
+            logger.warning(f"Call end failed: Call {call_id} not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Call not found"
+            )
+
+        # Check if current user is part of the call
+        if call.initiator_id != current_user.id and call.receiver_id != current_user.id:
+            logger.warning(f"Call end failed: {current_user.username} is not part of this call")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You are not part of this call"
+            )
+
+        # End the call
+        call = end_call(db, call_id)
+        logger.info(f"Call ended: {call_id} (Duration: {call.duration_seconds}s)")
+        
+        return call
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error ending call: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error ending call"
+        )
+
+
+@router.get("/active", response_model=CallResponse | None)
+@limiter.limit(f"{settings.RATE_LIMIT_API}/minute")
+async def get_active_call_endpoint(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get active call for current user if any"""
+    try:
+        call = get_active_call(db, current_user.id)
+        if call:
+            logger.info(f"User {current_user.username} has active call: {call.id}")
+        return call
+    except Exception as e:
+        logger.error(f"Error fetching active call: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error fetching active call"
+        )
+
+
+@router.get("/pending", response_model=CallResponse | None)
+@limiter.limit(f"{settings.RATE_LIMIT_API}/minute")
+async def get_pending_call_endpoint(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get pending incoming call for current user if any"""
+    try:
+        call = get_pending_call_for_user(db, current_user.id)
+        if call:
+            logger.info(f"User {current_user.username} has pending call: {call.id}")
+        return call
+    except Exception as e:
+        logger.error(f"Error fetching pending call: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error fetching pending call"
+        )
+
+
+@router.get("/history", response_model=list)
+@limiter.limit(f"{settings.RATE_LIMIT_API}/minute")
+async def get_call_history_endpoint(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get call history for current user"""
+    try:
+        calls = get_user_call_history(db, current_user.id, limit=50)
+        logger.info(f"User {current_user.username} fetched call history: {len(calls)} calls")
+        
+        # Convert to response format with usernames
+        history = []
+        for call in calls:
+            history.append({
+                "id": call.id,
+                "initiator_id": call.initiator_id,
+                "receiver_id": call.receiver_id,
+                "initiator_username": call.initiator.username if call.initiator else None,
+                "receiver_username": call.receiver.username if call.receiver else None,
+                "status": call.status.value if hasattr(call.status, 'value') else str(call.status),
+                "started_at": call.started_at,
+                "ended_at": call.ended_at,
+                "duration_seconds": call.duration_seconds
+            })
+        
+        return history
+    except Exception as e:
+        logger.error(f"Error fetching call history: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error fetching call history"
+        )
 
 
 @router.websocket("/ws/{user_id}")

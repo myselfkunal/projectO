@@ -131,3 +131,30 @@ def get_verification_token(db: Session, token: str) -> VerificationToken | None:
     ).first()
     
     return result
+
+
+def get_available_users(db: Session, current_user_id: str, limit: int = 10) -> list[User]:
+    """Get list of online, verified users available for matching (excluding self, blocked, and blockers)"""
+    # Get users that current_user has blocked
+    blocked_by_me = db.query(BlockedUser.blocked_id).filter(
+        BlockedUser.blocker_id == current_user_id
+    ).all()
+    blocked_ids = [b[0] for b in blocked_by_me]
+    
+    # Get users that have blocked current_user
+    blocked_me = db.query(BlockedUser.blocker_id).filter(
+        BlockedUser.blocked_id == current_user_id
+    ).all()
+    blocker_ids = [b[0] for b in blocked_me]
+    
+    exclude_ids = [current_user_id] + blocked_ids + blocker_ids
+    
+    # Get online, verified users excluding the above
+    available_users = db.query(User).filter(
+        User.is_online == True,
+        User.is_verified == True,
+        User.is_active == True,
+        User.id.notin_(exclude_ids)
+    ).limit(limit).all()
+    
+    return available_users
