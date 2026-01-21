@@ -24,7 +24,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/calls", tags=["calls"])
 
 
-@router.get("/available", response_model=list[AvailableUserResponse])
+@router.get(
+    "/available",
+    response_model=list[AvailableUserResponse],
+    openapi_extra={
+        "security": [{"Bearer": []}]
+    }
+)
 @limiter.limit(f"{settings.RATE_LIMIT_API}/minute")
 async def get_available_users_endpoint(
     request: Request,
@@ -44,7 +50,13 @@ async def get_available_users_endpoint(
         )
 
 
-@router.post("/initiate", response_model=CallResponse)
+@router.post(
+    "/initiate",
+    response_model=CallResponse,
+    openapi_extra={
+        "security": [{"Bearer": []}]
+    }
+)
 @limiter.limit(f"{settings.RATE_LIMIT_API}/minute")
 async def initiate_call(
     request: Request,
@@ -104,7 +116,13 @@ async def initiate_call(
         )
 
 
-@router.post("/accept/{call_id}", response_model=CallResponse)
+@router.post(
+    "/accept/{call_id}",
+    response_model=CallResponse,
+    openapi_extra={
+        "security": [{"Bearer": []}]
+    }
+)
 @limiter.limit(f"{settings.RATE_LIMIT_API}/minute")
 async def accept_call_endpoint(
     request: Request,
@@ -146,7 +164,13 @@ async def accept_call_endpoint(
         )
 
 
-@router.post("/reject/{call_id}", response_model=CallResponse)
+@router.post(
+    "/reject/{call_id}",
+    response_model=CallResponse,
+    openapi_extra={
+        "security": [{"Bearer": []}]
+    }
+)
 @limiter.limit(f"{settings.RATE_LIMIT_API}/minute")
 async def reject_call_endpoint(
     request: Request,
@@ -188,7 +212,13 @@ async def reject_call_endpoint(
         )
 
 
-@router.post("/end/{call_id}", response_model=CallResponse)
+@router.post(
+    "/end/{call_id}",
+    response_model=CallResponse,
+    openapi_extra={
+        "security": [{"Bearer": []}]
+    }
+)
 @limiter.limit(f"{settings.RATE_LIMIT_API}/minute")
 async def end_call_endpoint(
     request: Request,
@@ -230,7 +260,7 @@ async def end_call_endpoint(
         )
 
 
-@router.get("/active", response_model=CallResponse | None)
+@router.get("/active", response_model=CallResponse | None, openapi_extra={"security": [{"Bearer": []}]})
 @limiter.limit(f"{settings.RATE_LIMIT_API}/minute")
 async def get_active_call_endpoint(
     request: Request,
@@ -251,7 +281,7 @@ async def get_active_call_endpoint(
         )
 
 
-@router.get("/pending", response_model=CallResponse | None)
+@router.get("/pending", response_model=CallResponse | None, openapi_extra={"security": [{"Bearer": []}]})
 @limiter.limit(f"{settings.RATE_LIMIT_API}/minute")
 async def get_pending_call_endpoint(
     request: Request,
@@ -272,7 +302,7 @@ async def get_pending_call_endpoint(
         )
 
 
-@router.get("/history", response_model=list)
+@router.get("/history", response_model=list, openapi_extra={"security": [{"Bearer": []}]})
 @limiter.limit(f"{settings.RATE_LIMIT_API}/minute")
 async def get_call_history_endpoint(
     request: Request,

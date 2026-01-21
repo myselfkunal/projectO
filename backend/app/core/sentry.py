@@ -2,7 +2,6 @@
 import sentry_sdk
 from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
-from sentry_sdk.integrations.asgi import AsgiIntegration
 import os
 from .config import settings
 
@@ -15,7 +14,6 @@ def init_sentry():
             integrations=[
                 FastApiIntegration(),
                 SqlalchemyIntegration(),
-                AsgiIntegration(),
             ],
             traces_sample_rate=settings.SENTRY_TRACES_SAMPLE_RATE,
             environment=settings.ENVIRONMENT,

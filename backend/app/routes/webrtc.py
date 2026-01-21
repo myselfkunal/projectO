@@ -1,12 +1,13 @@
 """WebSocket endpoint for WebRTC signaling"""
-from fastapi import APIRouter, WebSocket, Query, Depends, status
+from fastapi import APIRouter, WebSocket, Query, Depends, status, Security
+from fastapi.security import HTTPBearer
 from sqlalchemy.orm import Session
 import json
 import logging
 from typing import Dict, Set
 
 from app.core.database import get_db
-from app.core.security import decode_token
+from app.core.security import decode_token, get_current_user
 from app.utils.webrtc_service import (
     initialize_webrtc_session,
     relay_offer,
@@ -277,8 +278,11 @@ async def broadcast_to_call(call_id: str, message: Dict, exclude_user_id: str = 
             logger.error(f"Failed to broadcast to user {user_id}: {str(e)}")
 
 
-@router.get("/webrtc/connection-state/{call_id}")
-async def get_connection_state(call_id: str):
+@router.get("/webrtc/connection-state/{call_id}", openapi_extra={"security": [{"Bearer": []}]})
+async def get_connection_state(
+    call_id: str,
+    current_user = Depends(get_current_user)
+):
     """Get current WebRTC connection state for debugging"""
     state = webrtc_manager.get_connection_state(call_id)
     if state:
@@ -286,8 +290,10 @@ async def get_connection_state(call_id: str):
     return {"error": "Connection not found"}
 
 
-@router.get("/webrtc/active-connections")
-async def get_active_connections():
+@router.get("/webrtc/active-connections", openapi_extra={"security": [{"Bearer": []}]})
+async def get_active_connections(
+    current_user = Depends(get_current_user)
+):
     """Get all active WebRTC connections (admin only)"""
     return {
         "total_calls": len(active_connections),
