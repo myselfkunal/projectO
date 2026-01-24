@@ -10,9 +10,11 @@ interface Message {
 interface ChatBoxProps {
   callId: string
   ws: WebSocket | null
+  currentUserId: string | null
+  userNameById: Record<string, string>
 }
 
-export const ChatBox: FC<ChatBoxProps> = ({ callId, ws }) => {
+export const ChatBox: FC<ChatBoxProps> = ({ callId, ws, currentUserId, userNameById }) => {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -24,6 +26,9 @@ export const ChatBox: FC<ChatBoxProps> = ({ callId, ws }) => {
       try {
         const message = JSON.parse(event.data)
         if (message.type === 'chat_message') {
+          if (currentUserId && message.from === currentUserId) {
+            return
+          }
           setMessages(prev => [...prev, {
             id: Date.now().toString(),
             from: message.from,
@@ -87,7 +92,11 @@ export const ChatBox: FC<ChatBoxProps> = ({ callId, ws }) => {
             No messages yet
           </div>
         ) : (
-          messages.map((msg) => (
+          messages.map((msg) => {
+            const displayFrom = msg.from === 'You'
+              ? 'You'
+              : (userNameById[msg.from] || 'Remote User')
+            return (
             <div key={msg.id} style={{
               display: 'flex',
               justifyContent: msg.from === 'You' ? 'flex-end' : 'flex-start'
@@ -100,14 +109,14 @@ export const ChatBox: FC<ChatBoxProps> = ({ callId, ws }) => {
                 wordWrap: 'break-word'
               }}>
                 <p style={{ margin: '0 0 4px 0', fontSize: '12px', color: '#aaa' }}>
-                  {msg.from}
+                  {displayFrom}
                 </p>
                 <p style={{ margin: 0, fontSize: '14px' }}>
                   {msg.text}
                 </p>
               </div>
             </div>
-          ))
+          )})
         )}
         <div ref={messagesEndRef} />
       </div>

@@ -4,7 +4,9 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer
+from sqlalchemy.orm import Session
 from .config import settings
+from .database import get_db
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
@@ -37,7 +39,7 @@ def decode_token(token: str) -> Optional[dict]:
         return None
 
 
-async def get_current_user(credentials = Depends(security)):
+async def get_current_user(credentials = Depends(security), db: Session = Depends(get_db)):
     """Get current authenticated user from JWT token"""
     token = credentials.credentials
     payload = decode_token(token)
@@ -59,11 +61,8 @@ async def get_current_user(credentials = Depends(security)):
     
     # Import here to avoid circular imports
     from app.utils.user_service import get_user_by_id
-    from app.core.database import SessionLocal
     
-    db = SessionLocal()
     user = get_user_by_id(db, user_id)
-    db.close()
     
     if not user:
         raise HTTPException(

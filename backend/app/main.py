@@ -54,6 +54,14 @@ async def lifespan(app: FastAPI):
     try:
         Base.metadata.create_all(bind=engine)
         logger.info("Database tables created successfully")
+        # Reset all users to offline on startup to avoid stale presence
+        db = SessionLocal()
+        try:
+            db.query(User).update({User.is_online: False})
+            db.commit()
+            logger.info("All users set to offline on startup")
+        finally:
+            db.close()
     except Exception as e:
         logger.error(f"Failed to create database tables: {e}")
         raise

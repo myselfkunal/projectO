@@ -16,7 +16,7 @@ from app.utils.webrtc_service import (
     close_webrtc_session,
     webrtc_manager
 )
-from app.utils.call_service import get_call_by_id
+from app.utils.call_service import get_call_by_id, end_call
 from app.utils.user_service import get_user_by_id
 
 logger = logging.getLogger(__name__)
@@ -206,6 +206,10 @@ async def websocket_webrtc_endpoint(
 
                 elif message_type == "end_call":
                     # Notify both users and close sockets
+                    try:
+                        end_call(db, call_id)
+                    except Exception as e:
+                        logger.warning(f"Failed to mark call ended for {call_id}: {str(e)}")
                     await broadcast_to_call(
                         call_id,
                         {

@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/context/authStore'
 import api from '@/utils/api'
 
@@ -29,73 +30,24 @@ export const Dashboard = () => {
   const [calling, setCallingUserId] = useState<string | null>(null)
   const [pendingCall, setPendingCall] = useState<CallResponse | null>(null)
   const [pendingLoading, setPendingLoading] = useState<boolean>(false)
-  const wsRef = useRef<WebSocket | null>(null)
+  const navigate = useNavigate()
 
-  // Initialize WebSocket connection and fetch available users
+  // Fetch available users and pending calls
   useEffect(() => {
     if (!user?.id) return
 
-    // Connect to WebSocket for presence tracking
-    connectToPresenceWebSocket()
-
-    // Fetch available users on component mount
     fetchAvailableUsers()
-
-    // Check for incoming calls
     fetchPendingCall()
-    
-    // Refresh available users and pending calls every 3 seconds
+
     const interval = setInterval(() => {
       fetchAvailableUsers()
       fetchPendingCall()
     }, 3000)
-    
+
     return () => {
       clearInterval(interval)
-      disconnectPresenceWebSocket()
     }
   }, [user?.id])
-
-  const connectToPresenceWebSocket = () => {
-    if (!user?.id) return
-
-    const token = localStorage.getItem('token')
-    if (!token) return
-
-    try {
-      const apiUrl = (((import.meta as unknown) as Record<string, Record<string, string>>).env.VITE_API_URL) || 'http://localhost:8000'
-      const wsUrl = apiUrl.replace('http://', 'ws://').replace('https://', 'wss://')
-      
-      const ws = new WebSocket(`${wsUrl}/calls/ws/${user.id}?token=${token}`)
-      
-      ws.onopen = () => {
-        console.log('Connected to presence WebSocket')
-        // Send ping every 30 seconds to keep connection alive
-        const pingInterval = setInterval(() => {
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.send('ping')
-          } else {
-            clearInterval(pingInterval)
-          }
-        }, 30000)
-      }
-      
-      ws.onerror = (error) => {
-        console.error('WebSocket error:', error)
-      }
-      
-      wsRef.current = ws
-    } catch (err) {
-      console.error('Error connecting to presence WebSocket:', err)
-    }
-  }
-
-  const disconnectPresenceWebSocket = () => {
-    if (wsRef.current) {
-      wsRef.current.close()
-      wsRef.current = null
-    }
-  }
 
   const fetchAvailableUsers = async () => {
     try {
@@ -128,7 +80,7 @@ export const Dashboard = () => {
       const callData = response.data
 
       const jwtToken = localStorage.getItem('token')
-      window.location.href = `/call/${callData.id}?token=${encodeURIComponent(jwtToken || '')}`
+      navigate(`/call/${callData.id}?token=${encodeURIComponent(jwtToken || '')}`)
     } catch (err: any) {
       console.error('Error accepting call:', err)
       setError(err.response?.data?.detail || 'Failed to accept call')
@@ -169,7 +121,7 @@ export const Dashboard = () => {
       const jwtToken = localStorage.getItem('token')
       
       // Redirect to call page with call ID and JWT token
-      window.location.href = `/call/${callData.id}?token=${encodeURIComponent(jwtToken || '')}`
+      navigate(`/call/${callData.id}?token=${encodeURIComponent(jwtToken || '')}`)
     } catch (err: any) {
       console.error('Error starting call:', err)
       setError(err.response?.data?.detail || 'Failed to start call')
@@ -178,8 +130,12 @@ export const Dashboard = () => {
   }
 
   const handleLogout = () => {
-    localStorage.removeItem('token')
-    window.location.href = '/login'
+    try {
+      api.post('/auth/logout').catch(() => null)
+    } finally {
+      localStorage.removeItem('token')
+      navigate('/login')
+    }
   }
 
   return (
@@ -192,21 +148,53 @@ export const Dashboard = () => {
             Logged in as: {user?.username || 'loading...'}
           </div>
         </div>
-        <button 
-          onClick={handleLogout}
-          style={{ 
-            padding: '10px 20px', 
-            fontSize: '14px', 
-            cursor: 'pointer',
-            background: '#dc2626',
-            color: 'white',
-            border: 'none',
-            borderRadius: '4px',
-            fontWeight: '500'
-          }}
-        >
-          Logout
-        </button>
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button
+            onClick={() => navigate('/history')}
+            style={{
+              padding: '10px 16px',
+              fontSize: '14px',
+              cursor: 'pointer',
+              background: '#374151',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              fontWeight: '500'
+            }}
+          >
+            Call History
+          </button>
+          <button
+            onClick={() => navigate('/profile')}
+            style={{
+              padding: '10px 16px',
+              fontSize: '14px',
+              cursor: 'pointer',
+              background: '#1f2937',
+              color: 'white',
+              border: '1px solid #374151',
+              borderRadius: '4px',
+              fontWeight: '500'
+            }}
+          >
+            My Profile
+          </button>
+          <button
+            onClick={handleLogout}
+            style={{
+              padding: '10px 20px',
+              fontSize: '14px',
+              cursor: 'pointer',
+              background: '#dc2626',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              fontWeight: '500'
+            }}
+          >
+            Logout
+          </button>
+        </div>
       </div>
 
       {/* Error Message */}
@@ -319,6 +307,23 @@ export const Dashboard = () => {
                   }}
                 >
                   {calling === availableUser.id ? 'Calling...' : 'Start Call'}
+                </button>
+
+                <button
+                  onClick={() => navigate(`/users/${availableUser.id}`)}
+                  style={{
+                    marginTop: '10px',
+                    padding: '8px 14px',
+                    fontSize: '13px',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    background: '#374151',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px'
+                  }}
+                >
+                  View Profile
                 </button>
               </div>
             ))}

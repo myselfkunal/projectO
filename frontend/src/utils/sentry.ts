@@ -32,7 +32,12 @@ export function initSentry() {
     // Filter out certain errors
     beforeSend(event, hint) {
       // Skip network errors in development
-      if (import.meta.env.DEV && hint.originalException?.message?.includes("Network")) {
+      const exception = hint?.originalException
+      const exceptionMessage =
+        exception && typeof exception === "object" && "message" in exception
+          ? String((exception as { message?: unknown }).message || "")
+          : ""
+      if (import.meta.env.DEV && exceptionMessage.includes("Network")) {
         return null;
       }
       

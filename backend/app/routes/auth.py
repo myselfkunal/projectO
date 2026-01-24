@@ -5,14 +5,14 @@ import logging
 from app.core.database import get_db
 from app.core.config import settings
 from app.core.limiter import limiter
-from app.core.security import create_access_token
+from app.core.security import create_access_token, get_current_user
 from app.schemas.user import (
     UserCreate, LoginRequest, TokenResponse, EmailVerificationRequest,
     EmailVerificationConfirm, UserResponse
 )
 from app.utils.user_service import (
     create_user, get_user_by_email, authenticate_user, 
-    verify_user_email, get_verification_token, set_user_online
+    verify_user_email, get_verification_token, set_user_online, set_user_offline
 )
 from app.utils.email import send_verification_email, generate_verification_token
 from app.utils.user_service import create_verification_token
@@ -137,3 +137,15 @@ async def login(request: Request, login_data: LoginRequest, db: Session = Depend
         "token_type": "bearer",
         "user": user
     }
+
+
+@router.post("/logout", openapi_extra={"security": [{"Bearer": []}]})
+@limiter.limit(f"{settings.RATE_LIMIT_AUTH}/minute")
+async def logout(
+    request: Request,
+    current_user = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Logout user and mark offline"""
+    set_user_offline(db, current_user.id)
+    return {"message": "Logged out"}

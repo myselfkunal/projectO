@@ -73,6 +73,14 @@ FRONTEND_URL=https://yourdomain.com
 BACKEND_URL=https://api.yourdomain.com
 ```
 
+## Production .env Templates
+
+Use these templates when deploying:
+
+- [backend/.env.production.example](backend/.env.production.example)
+- [frontend/.env.production.example](frontend/.env.production.example)
+- [docker/.env.example](docker/.env.example)
+
 ### Environment
 ```
 ENVIRONMENT=development
@@ -112,6 +120,20 @@ BACKEND_DATABASE_URL=postgresql://unilink_user:unilink_password@postgres:5432/un
 # Frontend
 VITE_API_URL=http://localhost:8000
 ```
+
+## Production Docker Compose (SSL + domain)
+
+Use [docker/docker-compose.prod.yml](docker/docker-compose.prod.yml) with:
+
+- [docker/.env.example](docker/.env.example)
+- [docker/nginx-ssl.template.conf](docker/nginx-ssl.template.conf)
+
+Steps:
+1) Copy docker/.env.example to docker/.env and fill values
+2) Build images: docker compose -f docker/docker-compose.yml build
+3) Start prod stack: docker compose -f docker/docker-compose.prod.yml up -d
+4) Issue certs (first time):
+   certbot certonly --webroot -w docker/certbot/www -d yourdomain.com -d www.yourdomain.com
 
 ## AWS RDS Configuration
 
