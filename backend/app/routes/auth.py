@@ -12,7 +12,7 @@ from app.schemas.user import (
 )
 from app.utils.user_service import (
     create_user, get_user_by_email, authenticate_user, 
-    verify_user_email, get_verification_token
+    verify_user_email, get_verification_token, set_user_online
 )
 from app.utils.email import send_verification_email, generate_verification_token
 from app.utils.user_service import create_verification_token
@@ -121,6 +121,9 @@ async def login(request: Request, login_data: LoginRequest, db: Session = Depend
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User account is inactive"
         )
+    
+    # Mark user as online
+    set_user_online(db, user.id)
     
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(

@@ -1,17 +1,18 @@
 import { useState, useEffect, FC } from 'react'
 
 interface CallTimerProps {
-  startTime: number
+  startTime: Date | number
   maxDuration?: number // in seconds
 }
 
-export const CallTimer: FC<CallTimerProps> = ({ startTime, maxDuration = 15 * 60 }) => {
+export const CallTimer: FC<CallTimerProps> = ({ startTime, maxDuration = 60 * 60 }) => {
   const [elapsed, setElapsed] = useState(0)
 
   useEffect(() => {
     const interval = setInterval(() => {
       const now = Date.now()
-      const newElapsed = Math.floor((now - startTime) / 1000)
+      const start = typeof startTime === 'number' ? startTime : startTime.getTime()
+      const newElapsed = Math.floor((now - start) / 1000)
       setElapsed(newElapsed)
 
       if (newElapsed >= maxDuration) {
@@ -27,9 +28,14 @@ export const CallTimer: FC<CallTimerProps> = ({ startTime, maxDuration = 15 * 60
   const isTimeUp = elapsed >= maxDuration
 
   return (
-    <div className={`text-center font-mono text-2xl font-bold ${isTimeUp ? 'text-red-500' : 'text-white'}`}>
+    <div style={{
+      fontFamily: 'monospace',
+      fontSize: '24px',
+      fontWeight: 'bold',
+      color: isTimeUp ? '#ef4444' : 'white'
+    }}>
       {String(minutes).padStart(2, '0')}:{String(seconds).padStart(2, '0')}
-      {isTimeUp && <p className="text-sm">Time's up!</p>}
+      {isTimeUp && <p style={{ fontSize: '14px', margin: '5px 0 0 0' }}>Time's up!</p>}
     </div>
   )
 }

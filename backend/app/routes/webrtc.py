@@ -85,6 +85,8 @@ async def websocket_webrtc_endpoint(
     if call_id not in active_connections:
         active_connections[call_id] = {}
         initialize_webrtc_session(db, call_id)
+        # Also create in webrtc_manager for tracking
+        webrtc_manager.create_peer_connection(call_id, call.initiator_id, call.receiver_id)
         logger.info(f"New WebRTC session for call {call_id}")
     
     # Store connection
@@ -201,6 +203,27 @@ async def websocket_webrtc_endpoint(
                         }
                     )
                     logger.debug(f"Chat message relayed in call {call_id}")
+
+                elif message_type == "end_call":
+                    # Notify both users and close sockets
+                    await broadcast_to_call(
+                        call_id,
+                        {
+                            "type": "call_ended",
+                            "user_id": user_id,
+                            "message": "Call ended"
+                        }
+                    )
+                    logger.info(f"Call ended by {user_id[:8]}... in call {call_id}")
+
+                    # Close all sockets for this call
+                    sockets = list(active_connections.get(call_id, {}).values())
+                    for ws in sockets:
+                        try:
+                            await ws.close(code=1000, reason="Call ended")
+                        except Exception:
+                            pass
+                    break
                 
                 elif message_type == "ping":
                     # Keep-alive ping
@@ -287,7 +310,17 @@ async def get_connection_state(
     state = webrtc_manager.get_connection_state(call_id)
     if state:
         return state
-    return {"error": "Connection not found"}
+    
+    # If not in manager, check active connections
+    if call_id in active_connections:
+        return {
+            "call_id": call_id,
+            "users": list(active_connections[call_id].keys()),
+            "user_count": len(active_connections[call_id]),
+            "connection_state": "active"
+        }
+    
+    return {"error": "Connection not found", "call_id": call_id}
 
 
 @router.get("/webrtc/active-connections", openapi_extra={"security": [{"Bearer": []}]})

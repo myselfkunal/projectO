@@ -5,23 +5,9 @@ import { Register } from '@/pages/Register'
 import { VerifyEmail } from '@/pages/VerifyEmail'
 import { Login } from '@/pages/Login'
 import { Dashboard } from '@/pages/Dashboard'
+import { Call } from '@/pages/Call'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
-import { errorLogger } from '@/utils/errorLogger'
 import '@/index.css'
-
-// Log app initialization
-errorLogger.logInfo('UniLink App initialized', {
-  component: 'App',
-  action: 'Application started',
-})
-
-// Catch unhandled promise rejections
-window.addEventListener('unhandledrejection', event => {
-  errorLogger.logError(
-    `Unhandled Promise Rejection: ${event.reason}`,
-    { component: 'App', action: 'Unhandled rejection' }
-  )
-})
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
   const isAuthenticated = useAuthStore(state => state.isAuthenticated)
@@ -56,6 +42,14 @@ export function App() {
             element={
               <ProtectedRoute>
                 <Dashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/call/:callId"
+            element={
+              <ProtectedRoute>
+                <Call />
               </ProtectedRoute>
             }
           />

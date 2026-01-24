@@ -1,12 +1,14 @@
 """Calls API routes for initiating, accepting, and managing video calls"""
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 import logging
+from typing import Set
+import asyncio
 
 from app.core.database import get_db
 from app.core.config import settings
 from app.core.limiter import limiter
-from app.core.security import get_current_user
+from app.core.security import get_current_user, decode_token
 from app.models.user import User
 from app.schemas.call import (
     CallCreate, CallResponse, AvailableUserResponse
@@ -22,6 +24,9 @@ from app.utils.user_service import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/calls", tags=["calls"])
+
+# Track online users (user_id set)
+online_users: Set[str] = set()
 
 
 @router.get(
@@ -75,7 +80,7 @@ async def initiate_call(
                 detail="Receiver not found"
             )
 
-        # Check if receiver is online
+        # Check if receiver is online (check database flag)
         if not receiver.is_online:
             logger.warning(f"Call initiation failed: Receiver {receiver.username} is offline")
             raise HTTPException(
@@ -113,6 +118,46 @@ async def initiate_call(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error initiating call"
+        )
+
+
+@router.get(
+    "/by-id/{call_id}",
+    response_model=CallResponse,
+    openapi_extra={
+        "security": [{"Bearer": []}]
+    }
+)
+@limiter.limit(f"{settings.RATE_LIMIT_API}/minute")
+async def get_call_by_id_endpoint(
+    request: Request,
+    call_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get a call by ID (participants only)"""
+    try:
+        call = get_call_by_id(db, call_id)
+        if not call:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Call not found"
+            )
+
+        if current_user.id not in [call.initiator_id, call.receiver_id]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized for this call"
+            )
+
+        return call
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching call {call_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error fetching call"
         )
 
 
@@ -336,3 +381,38 @@ async def get_call_history_endpoint(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error fetching call history"
         )
+
+
+@router.websocket("/ws/{user_id}")
+async def websocket_presence_endpoint(websocket: WebSocket, user_id: str, token: str = None):
+    """WebSocket endpoint for tracking user online presence"""
+    # Authenticate user
+    if not token:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Invalid token")
+        return
+    
+    # Decode token to verify it belongs to this user_id
+    if token.startswith("Bearer "):
+        token = token[7:]
+    
+    payload = decode_token(token)
+    if not payload or payload.get("sub") != user_id:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Token mismatch")
+        return
+    
+    await websocket.accept()
+    online_users.add(user_id)
+    logger.info(f"User {user_id[:8]}... came online. Online users: {len(online_users)}")
+    
+    try:
+        # Keep connection alive
+        while True:
+            data = await websocket.receive_text()
+            if data == "ping":
+                await websocket.send_text("pong")
+    except WebSocketDisconnect:
+        online_users.discard(user_id)
+        logger.info(f"User {user_id[:8]}... went offline. Online users: {len(online_users)}")
+    except Exception as e:
+        logger.error(f"WebSocket error for user {user_id}: {str(e)}")
+        online_users.discard(user_id)

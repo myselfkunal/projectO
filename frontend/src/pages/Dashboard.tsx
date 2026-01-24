@@ -1,286 +1,331 @@
-import { useState, useRef, FC, useCallback } from 'react'
-import { WebRTCManager } from '@/utils/webrtc'
-import { useWebSocket, WebSocketMessage } from '@/hooks/useWebSocket'
-import { VideoDisplay } from '@/components/VideoDisplay'
-import { ChatBox } from '@/components/ChatBox'
-import { CallTimer } from '@/components/CallTimer'
+import { useState, useEffect, useRef } from 'react'
 import { useAuthStore } from '@/context/authStore'
+import api from '@/utils/api'
 
-interface Message {
+interface AvailableUser {
   id: string
-  sender_id: string
-  sender_username: string
-  message: string
-  timestamp: string
-  isSent: boolean
+  username: string
+  full_name: string
+  profile_picture?: string
+  bio?: string
+  is_online: boolean
 }
 
-export const Dashboard: FC = () => {
+interface CallResponse {
+  id: string
+  initiator_id: string
+  receiver_id: string
+  status: string
+  call_token: string
+  started_at: string
+  ended_at?: string
+  duration_seconds: number
+}
+
+export const Dashboard = () => {
   const user = useAuthStore(state => state.user)
-  const token = useAuthStore(state => state.token)
-  const [page, setPage] = useState<'menu' | 'calling' | 'in-call'>('menu')
-  const [queuePosition, setQueuePosition] = useState(0)
-  interface RemoteUser {
-    id: string
-    username: string
-    profile_picture?: string
-  }
-  const [remoteUser, setRemoteUser] = useState<RemoteUser | null>(null)
-  const remoteUserRef = useRef<RemoteUser | null>(null)
-  const [localStream, setLocalStream] = useState<MediaStream | null>(null)
-  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null)
-  const [messages, setMessages] = useState<Message[]>([])
-  const [callStartTime, setCallStartTime] = useState(0)
-  const webrtcRef = useRef(new WebRTCManager())
-  const callIdRef = useRef<string>('')
-  const callTokenRef = useRef<string>('')
-  const messageIdRef = useRef(0)
+  const [availableUsers, setAvailableUsers] = useState<AvailableUser[]>([])
+  const [error, setError] = useState<string | null>(null)
+  const [calling, setCallingUserId] = useState<string | null>(null)
+  const [pendingCall, setPendingCall] = useState<CallResponse | null>(null)
+  const [pendingLoading, setPendingLoading] = useState<boolean>(false)
+  const wsRef = useRef<WebSocket | null>(null)
 
-  const handleWebSocketMessage = useCallback(async (msg: WebSocketMessage) => {
-    switch (msg.type) {
-      case 'queue_joined':
-        setQueuePosition(msg.queue_position as number)
-        break
+  // Initialize WebSocket connection and fetch available users
+  useEffect(() => {
+    if (!user?.id) return
 
-      case 'match_found':
-        callIdRef.current = msg.call_id as string
-        callTokenRef.current = msg.call_token as string
-        remoteUserRef.current = msg.matched_user as RemoteUser
-        setRemoteUser(msg.matched_user as RemoteUser)
-        setPage('in-call')
-        setCallStartTime(Date.now())
-        await initiateWebRTC(true)
-        break
+    // Connect to WebSocket for presence tracking
+    connectToPresenceWebSocket()
 
-      case 'webrtc_offer':
-        if (!remoteUserRef.current && msg.sender_id) {
-          remoteUserRef.current = { id: msg.sender_id as string, username: (msg.sender_username as string) || 'Remote user' }
-          setRemoteUser(remoteUserRef.current)
-        }
-        await handleWebRTCOffer(msg.offer as RTCSessionDescription)
-        break
+    // Fetch available users on component mount
+    fetchAvailableUsers()
 
-      case 'webrtc_answer':
-        await handleWebRTCAnswer(msg.answer as RTCSessionDescription)
-        break
-
-      case 'webrtc_ice':
-        await webrtcRef.current.addIceCandidate(msg.candidate as RTCIceCandidateInit)
-        break
-
-      case 'chat_message':
-        addMessage(msg.sender_username as string, msg.message as string, false, msg.sender_id as string)
-        break
-
-      case 'call_ended':
-        // Will call endCall via direct reference after it's defined
-        webrtcRef.current.cleanup()
-        setRemoteStream(null)
-        remoteUserRef.current = null
-        setRemoteUser(null)
-        setMessages([])
-        setPage('menu')
-        break
+    // Check for incoming calls
+    fetchPendingCall()
+    
+    // Refresh available users and pending calls every 3 seconds
+    const interval = setInterval(() => {
+      fetchAvailableUsers()
+      fetchPendingCall()
+    }, 3000)
+    
+    return () => {
+      clearInterval(interval)
+      disconnectPresenceWebSocket()
     }
-  }, [])
+  }, [user?.id])
 
-  const { send: sendWs, isConnected } = useWebSocket(user?.id || '', token || '', handleWebSocketMessage)
+  const connectToPresenceWebSocket = () => {
+    if (!user?.id) return
 
-  const initiateWebRTC = useCallback(async (isInitiator: boolean) => {
+    const token = localStorage.getItem('token')
+    if (!token) return
+
     try {
-      const stream = await webrtcRef.current.initialize()
-      setLocalStream(stream)
-
-      webrtcRef.current.createPeerConnection()
-
-      webrtcRef.current.setOnRemoteStream((stream) => {
-        setRemoteStream(stream)
-      })
-
-      webrtcRef.current.setOnIceCandidate((candidate) => {
-        if (!remoteUserRef.current) return
-        sendWs({
-          type: 'webrtc_ice',
-          candidate: candidate.candidate,
-          receiver_id: remoteUserRef.current.id,
-        })
-      })
-
-      if (isInitiator) {
-        const offer = await webrtcRef.current.createOffer()
-        if (remoteUserRef.current) {
-          sendWs({
-            type: 'webrtc_offer',
-            offer: offer,
-            receiver_id: remoteUserRef.current.id,
-          })
-        }
+      const apiUrl = (((import.meta as unknown) as Record<string, Record<string, string>>).env.VITE_API_URL) || 'http://localhost:8000'
+      const wsUrl = apiUrl.replace('http://', 'ws://').replace('https://', 'wss://')
+      
+      const ws = new WebSocket(`${wsUrl}/calls/ws/${user.id}?token=${token}`)
+      
+      ws.onopen = () => {
+        console.log('Connected to presence WebSocket')
+        // Send ping every 30 seconds to keep connection alive
+        const pingInterval = setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send('ping')
+          } else {
+            clearInterval(pingInterval)
+          }
+        }, 30000)
       }
-    } catch (error) {
-      console.error('WebRTC initialization error:', error)
-    }
-  }, [sendWs])
-
-  const handleWebRTCOffer = useCallback(async (offer: RTCSessionDescription) => {
-    try {
-      await webrtcRef.current.setRemoteDescription(offer)
-      const answer = await webrtcRef.current.createAnswer()
-      if (remoteUserRef.current) {
-        sendWs({
-          type: 'webrtc_answer',
-          answer: answer,
-          receiver_id: remoteUserRef.current.id,
-        })
+      
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error)
       }
-    } catch (error) {
-      console.error('Error handling WebRTC offer:', error)
+      
+      wsRef.current = ws
+    } catch (err) {
+      console.error('Error connecting to presence WebSocket:', err)
     }
-  }, [sendWs])
+  }
 
-  async function handleWebRTCAnswer(answer: RTCSessionDescription) {
+  const disconnectPresenceWebSocket = () => {
+    if (wsRef.current) {
+      wsRef.current.close()
+      wsRef.current = null
+    }
+  }
+
+  const fetchAvailableUsers = async () => {
     try {
-      await webrtcRef.current.setRemoteDescription(answer)
-    } catch (error) {
-      console.error('Error handling WebRTC answer:', error)
+      setError(null)
+      const response = await api.get('/calls/available')
+      setAvailableUsers(response.data)
+    } catch (err: any) {
+      console.error('Error fetching available users:', err)
+      if (err.response?.status !== 404) {
+        setError(err.response?.data?.detail || 'Failed to fetch available users')
+      }
     }
   }
 
-  function addMessage(username: string, text: string, isSent: boolean, senderId: string) {
-    setMessages(prev => [...prev, {
-      id: `msg-${messageIdRef.current++}`,
-      sender_id: senderId,
-      sender_username: username,
-      message: text,
-      timestamp: new Date().toISOString(),
-      isSent,
-    }])
+  const fetchPendingCall = async () => {
+    try {
+      const response = await api.get<CallResponse | null>('/calls/pending')
+      setPendingCall(response.data)
+    } catch (err) {
+      console.error('Error fetching pending call:', err)
+    }
   }
 
-  function handleSendMessage(text: string) {
-    if (remoteUserRef.current) {
-      addMessage(user?.username || 'You', text, true, user?.id || '')
-      sendWs({
-        type: 'chat_message',
-        message: text,
-        receiver_id: remoteUserRef.current.id,
-        timestamp: new Date().toISOString(),
+  const handleAcceptCall = async () => {
+    if (!pendingCall) return
+
+    try {
+      setPendingLoading(true)
+      const response = await api.post<CallResponse>(`/calls/accept/${pendingCall.id}`)
+      const callData = response.data
+
+      const jwtToken = localStorage.getItem('token')
+      window.location.href = `/call/${callData.id}?token=${encodeURIComponent(jwtToken || '')}`
+    } catch (err: any) {
+      console.error('Error accepting call:', err)
+      setError(err.response?.data?.detail || 'Failed to accept call')
+    } finally {
+      setPendingLoading(false)
+    }
+  }
+
+  const handleRejectCall = async () => {
+    if (!pendingCall) return
+
+    try {
+      setPendingLoading(true)
+      await api.post(`/calls/reject/${pendingCall.id}`)
+      setPendingCall(null)
+    } catch (err: any) {
+      console.error('Error rejecting call:', err)
+      setError(err.response?.data?.detail || 'Failed to reject call')
+    } finally {
+      setPendingLoading(false)
+    }
+  }
+
+  const handleStartCall = async (receiverId: string) => {
+    try {
+      setError(null)
+      setCallingUserId(receiverId)
+
+      // Initiate call via API
+      const response = await api.post<CallResponse>('/calls/initiate', {
+        receiver_id: receiverId,
       })
+
+      const callData = response.data
+      console.log('Call initiated:', callData)
+
+      // Get JWT token from localStorage
+      const jwtToken = localStorage.getItem('token')
+      
+      // Redirect to call page with call ID and JWT token
+      window.location.href = `/call/${callData.id}?token=${encodeURIComponent(jwtToken || '')}`
+    } catch (err: any) {
+      console.error('Error starting call:', err)
+      setError(err.response?.data?.detail || 'Failed to start call')
+      setCallingUserId(null)
     }
   }
 
-  function startCall() {
-    setPage('calling')
-    sendWs({ type: 'join_queue' })
-  }
-
-  const endCall = useCallback(() => {
-    if (remoteUserRef.current) {
-      sendWs({
-        type: 'end_call',
-        receiver_id: remoteUserRef.current.id,
-      })
-    }
-    webrtcRef.current.cleanup()
-    setRemoteStream(null)
-    remoteUserRef.current = null
-    setRemoteUser(null)
-    setMessages([])
-    setPage('menu')
-  }, [sendWs])
-
-  function leaveQueue() {
-    sendWs({ type: 'leave_queue' })
-    setPage('menu')
-    setQueuePosition(0)
+  const handleLogout = () => {
+    localStorage.removeItem('token')
+    window.location.href = '/login'
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white">
+    <div style={{ background: '#111', color: 'white', minHeight: '100vh', padding: '20px' }}>
       {/* Header */}
-      <header className="bg-gray-800 border-b border-gray-700 px-6 py-4">
-        <div className="flex justify-between items-center">
-          <h1 className="text-2xl font-bold">UniLink</h1>
-          <div className="flex items-center gap-4">
-            <span className={`w-3 h-3 rounded-full ${user?.is_online ? 'bg-green-500' : 'bg-gray-500'}`}></span>
-            <span>{user?.username}</span>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '40px', borderBottom: '1px solid #333', paddingBottom: '20px' }}>
+        <div>
+          <div style={{ fontSize: '32px', fontWeight: 'bold' }}>UniLink</div>
+          <div style={{ fontSize: '14px', color: '#888', marginTop: '5px' }}>
+            Logged in as: {user?.username || 'loading...'}
+          </div>
+        </div>
+        <button 
+          onClick={handleLogout}
+          style={{ 
+            padding: '10px 20px', 
+            fontSize: '14px', 
+            cursor: 'pointer',
+            background: '#dc2626',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            fontWeight: '500'
+          }}
+        >
+          Logout
+        </button>
+      </div>
+
+      {/* Error Message */}
+      {error && (
+        <div style={{ background: '#7f1d1d', color: '#fca5a5', padding: '12px', borderRadius: '4px', marginBottom: '20px' }}>
+          {error}
+        </div>
+      )}
+
+      {pendingCall && (
+        <div style={{ background: '#1f2937', border: '1px solid #374151', padding: '16px', borderRadius: '8px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <div style={{ fontSize: '16px', fontWeight: '600' }}>Incoming call</div>
+            <div style={{ fontSize: '13px', color: '#9ca3af', marginTop: '4px' }}>
+              Call ID: {pendingCall.id}
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: '10px' }}>
             <button
-              onClick={() => {
-                localStorage.removeItem('token')
-                window.location.href = '/login'
+              onClick={handleRejectCall}
+              disabled={pendingLoading}
+              style={{
+                padding: '8px 14px',
+                background: '#7f1d1d',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: pendingLoading ? 'not-allowed' : 'pointer'
               }}
-              className="px-4 py-2 bg-red-600 rounded hover:bg-red-700"
             >
-              Logout
+              Reject
+            </button>
+            <button
+              onClick={handleAcceptCall}
+              disabled={pendingLoading}
+              style={{
+                padding: '8px 14px',
+                background: '#16a34a',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: pendingLoading ? 'not-allowed' : 'pointer'
+              }}
+            >
+              {pendingLoading ? 'Accepting...' : 'Accept'}
             </button>
           </div>
         </div>
-      </header>
+      )}
 
-      {/* Main Content */}
-      <main className="p-6 max-w-7xl mx-auto">
-        {page === 'menu' && (
-          <div className="flex flex-col items-center justify-center h-96">
-            <h2 className="text-4xl font-bold mb-8">Find Someone to Talk To</h2>
-            <button
-              onClick={startCall}
-              disabled={!isConnected}
-              className="px-8 py-4 bg-blue-500 rounded-lg font-bold text-lg hover:bg-blue-600 disabled:bg-gray-600"
-            >
-              Start a Call
-            </button>
-            {!isConnected && <p className="text-red-500 mt-4">Connecting...</p>}
+      {/* Available Users Section */}
+      <div>
+        <h2 style={{ fontSize: '20px', fontWeight: '600', marginBottom: '20px' }}>
+          Available Users ({availableUsers.length})
+        </h2>
+
+        {availableUsers.length === 0 ? (
+          <div style={{ padding: '40px', textAlign: 'center', color: '#666', background: '#1a1a1a', borderRadius: '4px' }}>
+            No users available for calling right now
           </div>
-        )}
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px' }}>
+            {availableUsers.map((availableUser) => (
+              <div 
+                key={availableUser.id}
+                style={{
+                  background: '#1a1a1a',
+                  border: '1px solid #333',
+                  borderRadius: '8px',
+                  padding: '20px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between'
+                }}
+              >
+                {/* User Info */}
+                <div>
+                  <div style={{ fontSize: '16px', fontWeight: '600', marginBottom: '5px' }}>
+                    {availableUser.full_name || availableUser.username}
+                  </div>
+                  <div style={{ fontSize: '14px', color: '#888', marginBottom: '10px' }}>
+                    @{availableUser.username}
+                  </div>
+                  {availableUser.bio && (
+                    <div style={{ fontSize: '13px', color: '#aaa', marginBottom: '10px', minHeight: '40px' }}>
+                      {availableUser.bio}
+                    </div>
+                  )}
+                  <div style={{ fontSize: '12px', color: '#4ade80', marginTop: '10px' }}>
+                    🟢 Online
+                  </div>
+                </div>
 
-        {page === 'calling' && (
-          <div className="flex flex-col items-center justify-center h-96">
-            <h2 className="text-3xl font-bold mb-8">Finding a match...</h2>
-            <div className="text-2xl mb-8">Position in queue: {queuePosition}</div>
-            <button
-              onClick={leaveQueue}
-              className="px-8 py-4 bg-red-600 rounded-lg font-bold text-lg hover:bg-red-700"
-            >
-              Cancel
-            </button>
-          </div>
-        )}
-
-        {page === 'in-call' && remoteUser && (
-          <div className="grid grid-cols-3 gap-4 h-screen">
-            {/* Video Area - 2 columns */}
-            <div className="col-span-2 flex flex-col gap-4">
-              {/* Remote Video */}
-              <div className="flex-1 bg-black rounded-lg overflow-hidden">
-                <VideoDisplay stream={remoteStream} label={remoteUser.username} />
-              </div>
-
-              {/* Local Video */}
-              <div className="h-32 bg-black rounded-lg overflow-hidden relative">
-                <VideoDisplay stream={localStream} isLocalVideo={true} label="You" />
-              </div>
-
-              {/* Call Controls */}
-              <div className="flex justify-center gap-4">
-                <CallTimer startTime={callStartTime} maxDuration={15 * 60} />
+                {/* Start Call Button */}
                 <button
-                  onClick={endCall}
-                  className="px-6 py-2 bg-red-600 rounded-lg font-bold hover:bg-red-700"
+                  onClick={() => handleStartCall(availableUser.id)}
+                  disabled={calling === availableUser.id}
+                  style={{
+                    marginTop: '15px',
+                    padding: '10px 16px',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    cursor: calling === availableUser.id ? 'not-allowed' : 'pointer',
+                    background: calling === availableUser.id ? '#666' : '#3b82f6',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    opacity: calling === availableUser.id ? 0.7 : 1,
+                    transition: 'all 0.2s'
+                  }}
                 >
-                  End Call
+                  {calling === availableUser.id ? 'Calling...' : 'Start Call'}
                 </button>
               </div>
-            </div>
-
-            {/* Chat Area - 1 column */}
-            <div className="h-full">
-              <ChatBox
-                messages={messages}
-                onSendMessage={handleSendMessage}
-              />
-            </div>
+            ))}
           </div>
         )}
-      </main>
+      </div>
     </div>
   )
 }
+

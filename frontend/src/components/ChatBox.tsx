@@ -2,70 +2,157 @@ import { useState, FC, useRef, useEffect } from 'react'
 
 interface Message {
   id: string
-  sender_id: string
-  sender_username: string
-  message: string
+  from: string
+  text: string
   timestamp: string
-  isSent: boolean
 }
 
 interface ChatBoxProps {
-  messages: Message[]
-  onSendMessage: (message: string) => void
-  disabled?: boolean
+  callId: string
+  ws: WebSocket | null
 }
 
-export const ChatBox: FC<ChatBoxProps> = ({ messages, onSendMessage, disabled = false }) => {
+export const ChatBox: FC<ChatBoxProps> = ({ callId, ws }) => {
+  const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  const handleSend = () => {
-    if (input.trim()) {
-      onSendMessage(input)
-      setInput('')
+  useEffect(() => {
+    if (!ws) return
+
+    const handleMessage = (event: MessageEvent) => {
+      try {
+        const message = JSON.parse(event.data)
+        if (message.type === 'chat_message') {
+          setMessages(prev => [...prev, {
+            id: Date.now().toString(),
+            from: message.from,
+            text: message.text,
+            timestamp: message.timestamp || new Date().toISOString()
+          }])
+        }
+      } catch (err) {
+        console.error('Error handling chat message:', err)
+      }
     }
-  }
+
+    ws.addEventListener('message', handleMessage)
+    return () => ws.removeEventListener('message', handleMessage)
+  }, [ws])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
+  const handleSend = () => {
+    if (input.trim() && ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: 'chat_message',
+        text: input,
+        timestamp: new Date().toISOString()
+      }))
+      
+      // Add to local messages
+      setMessages(prev => [...prev, {
+        id: Date.now().toString(),
+        from: 'You',
+        text: input,
+        timestamp: new Date().toISOString()
+      }])
+      
+      setInput('')
+    }
+  }
+
   return (
-    <div className="flex flex-col h-full bg-white border-l border-gray-200">
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
-        {messages.map((msg) => (
-          <div key={msg.id} className={`flex ${msg.isSent ? 'justify-end' : 'justify-start'}`}>
-            <div
-              className={`chat-message ${msg.isSent ? 'sent' : 'received'}`}
-            >
-              <p className="text-xs font-semibold mb-1">{msg.sender_username}</p>
-              <p>{msg.message}</p>
-              <p className="text-xs opacity-70 mt-1">{new Date(msg.timestamp).toLocaleTimeString()}</p>
-            </div>
+    <div style={{
+      display: 'flex',
+      flexDirection: 'column',
+      height: '100%',
+      background: '#1a1a1a',
+      border: '1px solid #333',
+      borderRadius: '8px',
+      overflow: 'hidden'
+    }}>
+      <div style={{
+        flex: 1,
+        overflowY: 'auto',
+        padding: '12px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '8px'
+      }}>
+        {messages.length === 0 ? (
+          <div style={{ color: '#666', textAlign: 'center', padding: '20px' }}>
+            No messages yet
           </div>
-        ))}
+        ) : (
+          messages.map((msg) => (
+            <div key={msg.id} style={{
+              display: 'flex',
+              justifyContent: msg.from === 'You' ? 'flex-end' : 'flex-start'
+            }}>
+              <div style={{
+                maxWidth: '80%',
+                background: msg.from === 'You' ? '#3b82f6' : '#333',
+                padding: '8px 12px',
+                borderRadius: '6px',
+                wordWrap: 'break-word'
+              }}>
+                <p style={{ margin: '0 0 4px 0', fontSize: '12px', color: '#aaa' }}>
+                  {msg.from}
+                </p>
+                <p style={{ margin: 0, fontSize: '14px' }}>
+                  {msg.text}
+                </p>
+              </div>
+            </div>
+          ))
+        )}
         <div ref={messagesEndRef} />
       </div>
 
-      <div className="border-t border-gray-200 p-3 bg-gray-50">
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && handleSend()}
-            placeholder="Type a message..."
-            disabled={disabled}
-            className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
-          />
-          <button
-            onClick={handleSend}
-            disabled={!input.trim() || disabled}
-            className="px-4 py-2 bg-blue-500 text-white rounded-lg text-sm font-medium hover:bg-blue-600 disabled:bg-gray-400"
-          >
-            Send
-          </button>
-        </div>
+      <div style={{
+        borderTop: '1px solid #333',
+        padding: '12px',
+        display: 'flex',
+        gap: '8px',
+        background: '#0a0a0a'
+      }}>
+        <input
+          type="text"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyPress={(e) => e.key === 'Enter' && handleSend()}
+          placeholder="Type message..."
+          disabled={!ws || ws.readyState !== WebSocket.OPEN}
+          style={{
+            flex: 1,
+            padding: '8px',
+            border: '1px solid #333',
+            borderRadius: '4px',
+            background: '#1a1a1a',
+            color: 'white',
+            fontSize: '13px',
+            outline: 'none'
+          }}
+        />
+        <button
+          onClick={handleSend}
+          disabled={!input.trim() || !ws || ws.readyState !== WebSocket.OPEN}
+          style={{
+            padding: '8px 12px',
+            background: input.trim() && ws && ws.readyState === WebSocket.OPEN ? '#3b82f6' : '#666',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: input.trim() && ws && ws.readyState === WebSocket.OPEN ? 'pointer' : 'not-allowed',
+            fontSize: '13px',
+            fontWeight: '600'
+          }}
+        >
+          Send
+        </button>
       </div>
     </div>
   )
