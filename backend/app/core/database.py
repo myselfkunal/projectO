@@ -30,7 +30,14 @@ if "pooler.supabase.com" in database_url:
         database_url,
         echo=settings.ENVIRONMENT == "development",
         poolclass=NullPool,
-        connect_args={"sslmode": "require"}
+        connect_args={
+            "sslmode": "require",
+            "keepalives": 1,
+            "keepalives_idle": 30,
+            "keepalives_interval": 10,
+            "keepalives_count": 5,
+        },
+        pool_pre_ping=True,
     )
 else:
     engine = create_engine(

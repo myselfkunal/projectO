@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.openapi.utils import get_openapi
 from contextlib import asynccontextmanager
+import asyncio
 import logging
 import logging.config
 from slowapi import _rate_limit_exceeded_handler
@@ -51,20 +52,25 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     # Startup - create database tables
     logger.info("Application starting up...")
-    try:
-        Base.metadata.create_all(bind=engine)
-        logger.info("Database tables created successfully")
-        # Reset all users to offline on startup to avoid stale presence
-        db = SessionLocal()
+    max_retries = 5
+    for attempt in range(1, max_retries + 1):
         try:
-            db.query(User).update({User.is_online: False})
-            db.commit()
-            logger.info("All users set to offline on startup")
-        finally:
-            db.close()
-    except Exception as e:
-        logger.error(f"Failed to create database tables: {e}")
-        raise
+            Base.metadata.create_all(bind=engine)
+            logger.info("Database tables created successfully")
+            # Reset all users to offline on startup to avoid stale presence
+            db = SessionLocal()
+            try:
+                db.query(User).update({User.is_online: False})
+                db.commit()
+                logger.info("All users set to offline on startup")
+            finally:
+                db.close()
+            break
+        except Exception as e:
+            logger.error(f"Failed to initialize database (attempt {attempt}/{max_retries}): {e}")
+            if attempt == max_retries:
+                raise
+            await asyncio.sleep(2 * attempt)
     yield
     # Shutdown
     logger.info("Application shutting down...")
