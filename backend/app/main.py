@@ -48,11 +48,8 @@ logging.config.dictConfig(logging_config)
 logger = logging.getLogger(__name__)
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Startup - create database tables
-    logger.info("Application starting up...")
-    max_retries = 5
+async def _init_db_with_retries() -> None:
+    max_retries = 10
     for attempt in range(1, max_retries + 1):
         try:
             Base.metadata.create_all(bind=engine)
@@ -65,14 +62,29 @@ async def lifespan(app: FastAPI):
                 logger.info("All users set to offline on startup")
             finally:
                 db.close()
-            break
+            return
         except Exception as e:
             logger.error(f"Failed to initialize database (attempt {attempt}/{max_retries}): {e}")
-            if attempt == max_retries:
-                raise
-            await asyncio.sleep(2 * attempt)
+            await asyncio.sleep(min(30, 2 * attempt))
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    logger.info("Application starting up...")
+    startup_task: asyncio.Task | None = None
+
+    if settings.ENVIRONMENT == "production":
+        # Don't block startup in production; retry DB init in background.
+        startup_task = asyncio.create_task(_init_db_with_retries())
+    else:
+        await _init_db_with_retries()
+
     yield
+
     # Shutdown
+    if startup_task and not startup_task.done():
+        startup_task.cancel()
     logger.info("Application shutting down...")
 
 
