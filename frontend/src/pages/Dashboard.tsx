@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/context/authStore'
 import api from '@/utils/api'
@@ -31,21 +31,39 @@ export const Dashboard = () => {
   const [pendingCall, setPendingCall] = useState<CallResponse | null>(null)
   const [pendingLoading, setPendingLoading] = useState<boolean>(false)
   const navigate = useNavigate()
+  const pollTimerRef = useRef<number | null>(null)
+  const isPollingRef = useRef(false)
+  const isMountedRef = useRef(false)
 
   // Fetch available users and pending calls
   useEffect(() => {
     if (!user?.id) return
 
-    fetchAvailableUsers()
-    fetchPendingCall()
+    isMountedRef.current = true
 
-    const interval = setInterval(() => {
-      fetchAvailableUsers()
-      fetchPendingCall()
-    }, 3000)
+    const poll = async () => {
+      if (!isMountedRef.current) return
+      if (isPollingRef.current) {
+        pollTimerRef.current = window.setTimeout(poll, 5000)
+        return
+      }
+
+      isPollingRef.current = true
+      await Promise.all([fetchAvailableUsers(), fetchPendingCall()])
+      isPollingRef.current = false
+
+      if (isMountedRef.current) {
+        pollTimerRef.current = window.setTimeout(poll, 5000)
+      }
+    }
+
+    poll()
 
     return () => {
-      clearInterval(interval)
+      isMountedRef.current = false
+      if (pollTimerRef.current) {
+        window.clearTimeout(pollTimerRef.current)
+      }
     }
   }, [user?.id])
 
@@ -53,9 +71,11 @@ export const Dashboard = () => {
     try {
       setError(null)
       const response = await api.get('/calls/available')
+      if (!isMountedRef.current) return
       setAvailableUsers(response.data)
     } catch (err: any) {
       console.error('Error fetching available users:', err)
+      if (!isMountedRef.current) return
       if (err.response?.status !== 404) {
         setError(err.response?.data?.detail || 'Failed to fetch available users')
       }
@@ -65,6 +85,7 @@ export const Dashboard = () => {
   const fetchPendingCall = async () => {
     try {
       const response = await api.get<CallResponse | null>('/calls/pending')
+      if (!isMountedRef.current) return
       setPendingCall(response.data)
     } catch (err) {
       console.error('Error fetching pending call:', err)
