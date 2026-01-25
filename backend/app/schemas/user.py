@@ -48,6 +48,16 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class LoginOTPResponse(BaseModel):
+    otp_required: bool
+    message: str
+
+
+class LoginOTPVerifyRequest(BaseModel):
+    email: EmailStr
+    otp: str
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str

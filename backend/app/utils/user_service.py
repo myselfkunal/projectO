@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from app.models.user import User, BlockedUser, Report, VerificationToken
+from app.models.user import User, BlockedUser, Report, VerificationToken, LoginOTP
 from app.schemas.user import UserCreate, UserUpdate
 from app.core.security import get_password_hash, verify_password
 from datetime import datetime, timedelta
@@ -131,6 +131,35 @@ def get_verification_token(db: Session, token: str) -> VerificationToken | None:
     ).first()
     
     return result
+
+
+def create_login_otp(db: Session, user_id: str, code: str) -> LoginOTP:
+    # Invalidate any existing unused OTPs for this user
+    db.query(LoginOTP).filter(
+        LoginOTP.user_id == user_id,
+        LoginOTP.is_used == False
+    ).update({LoginOTP.is_used: True})
+    db.commit()
+
+    expires_at = datetime.utcnow() + timedelta(minutes=10)
+    login_otp = LoginOTP(
+        user_id=user_id,
+        code=code,
+        expires_at=expires_at
+    )
+    db.add(login_otp)
+    db.commit()
+    db.refresh(login_otp)
+    return login_otp
+
+
+def get_valid_login_otp(db: Session, user_id: str, code: str) -> LoginOTP | None:
+    return db.query(LoginOTP).filter(
+        LoginOTP.user_id == user_id,
+        LoginOTP.code == code,
+        LoginOTP.is_used == False,
+        LoginOTP.expires_at > datetime.utcnow()
+    ).order_by(LoginOTP.created_at.desc()).first()
 
 
 def get_available_users(db: Session, current_user_id: str, limit: int = 10) -> list[User]:

@@ -123,7 +123,62 @@ async def send_password_reset_email(email: str, token: str, username: str) -> bo
         return False
 
 
+async def send_login_otp_email(email: str, otp: str, username: str) -> bool:
+    """Send login OTP email using SendGrid"""
+    try:
+        if not settings.SENDGRID_API_KEY:
+            logger.warning("SendGrid API key missing; printing login OTP to logs")
+            logger.info(f"🔐 LOGIN OTP FOR {email}: {otp}")
+            return True
+
+        html_content = f"""
+        <html>
+            <body style="font-family: Arial, sans-serif; background-color: #f9f9f9; padding: 20px;">
+                <div style="max-width: 600px; background-color: white; margin: 0 auto; padding: 30px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                    <h2 style="color: #333; text-align: center;">Your UniLink Login Code</h2>
+                    <p style="color: #666; line-height: 1.6;">Hi {username},</p>
+                    <p style="color: #666; line-height: 1.6;">Use the code below to finish logging in:</p>
+
+                    <div style="text-align: center; margin: 30px 0;">
+                        <div style="display: inline-block; font-size: 28px; letter-spacing: 6px; font-weight: bold; background: #f0f0f0; padding: 12px 20px; border-radius: 6px;">
+                            {otp}
+                        </div>
+                    </div>
+
+                    <p style="color: #999; font-size: 12px; text-align: center;">
+                        This code expires in 10 minutes.<br>
+                        If you didn't request this, you can ignore this email.
+                    </p>
+                </div>
+            </body>
+        </html>
+        """
+
+        message = Mail(
+            from_email=Email(settings.EMAIL_FROM),
+            to_emails=To(email),
+            subject="Your UniLink Login Code",
+            html_content=html_content
+        )
+
+        sg = SendGridAPIClient(settings.SENDGRID_API_KEY)
+        response = sg.send(message)
+
+        logger.info(f"✅ Login OTP email sent to {email} (Status: {response.status_code})")
+        return response.status_code == 202
+
+    except Exception as e:
+        logger.error(f"❌ Error sending login OTP email to {email}: {str(e)}")
+        return False
+
+
 def generate_verification_token() -> str:
     """Generate a random verification token"""
     import secrets
     return secrets.token_urlsafe(32)
+
+
+def generate_otp_code(length: int = 6) -> str:
+    """Generate numeric OTP code"""
+    import secrets
+    return "".join(str(secrets.randbelow(10)) for _ in range(length))

@@ -44,6 +44,7 @@ class User(Base):
     blocked_by = relationship("BlockedUser", foreign_keys="BlockedUser.blocked_id", back_populates="blocked")
     reports_made = relationship("Report", foreign_keys="Report.reporter_id", back_populates="reporter")
     reports_received = relationship("Report", foreign_keys="Report.reported_id", back_populates="reported")
+    login_otps = relationship("LoginOTP", back_populates="user", cascade="all, delete-orphan")
 
 
 class Call(Base):
@@ -99,6 +100,18 @@ class VerificationToken(Base):
     user_id = Column(String, ForeignKey("users.id"), nullable=False)
     user = relationship("User", back_populates="verification_tokens")
     token = Column(String, unique=True, nullable=False)
+    is_used = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False)
+
+
+class LoginOTP(Base):
+    __tablename__ = "login_otps"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    user = relationship("User", back_populates="login_otps")
+    code = Column(String, nullable=False)
     is_used = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     expires_at = Column(DateTime, nullable=False)

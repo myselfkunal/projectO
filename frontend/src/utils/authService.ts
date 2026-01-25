@@ -27,6 +27,14 @@ export const authService = {
     return response.data
   },
 
+  async verifyLoginOtp(email: string, otp: string) {
+    const response = await api.post('/auth/login/verify-otp', {
+      email,
+      otp,
+    })
+    return response.data
+  },
+
   async getCurrentUser() {
     const response = await api.get('/users/me')
     return response.data
