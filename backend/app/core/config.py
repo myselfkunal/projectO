@@ -23,8 +23,8 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     
     # Security
-    ALLOWED_HOSTS: List[str] = Field(default_factory=lambda: ["localhost", "127.0.0.1"])
-    ALLOWED_ORIGINS: List[str] = Field(default_factory=lambda: ["http://localhost:3000", "http://localhost:3001", "http://localhost:5173"])
+    ALLOWED_HOSTS: List[str] | str = Field(default_factory=lambda: ["localhost", "127.0.0.1"])
+    ALLOWED_ORIGINS: List[str] | str = Field(default_factory=lambda: ["http://localhost:3000", "http://localhost:3001", "http://localhost:5173"])
     
     # Rate Limiting (requests per minute)
     RATE_LIMIT_AUTH: int = 10
