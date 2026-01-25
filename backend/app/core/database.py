@@ -38,6 +38,7 @@ if "pooler.supabase.com" in database_url:
             "keepalives_count": 5,
         },
         pool_pre_ping=True,
+        use_native_hstore=False,
     )
 else:
     engine = create_engine(
