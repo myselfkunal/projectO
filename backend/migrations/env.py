@@ -7,7 +7,7 @@ from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 from alembic import context
 from app.core.database import Base
-from app.models.user import User, Call, BlockedUser, Report, VerificationToken
+from app.models.user import User, Call, BlockedUser, Report, VerificationToken, LoginOTP
 
 # This is the Alembic Config object
 config = context.config
