@@ -1,5 +1,7 @@
+import json
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
-from typing import Optional
+from typing import List, Optional, Any
 
 
 class Settings(BaseSettings):
@@ -21,8 +23,8 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     
     # Security
-    ALLOWED_HOSTS: list = ["localhost", "127.0.0.1"]
-    ALLOWED_ORIGINS: list = ["http://localhost:3000", "http://localhost:3001", "http://localhost:5173"]
+    ALLOWED_HOSTS: List[str] = Field(default_factory=lambda: ["localhost", "127.0.0.1"])
+    ALLOWED_ORIGINS: List[str] = Field(default_factory=lambda: ["http://localhost:3000", "http://localhost:3001", "http://localhost:5173"])
     
     # Rate Limiting (requests per minute)
     RATE_LIMIT_AUTH: int = 10
@@ -38,6 +40,27 @@ class Settings(BaseSettings):
     
     class Config:
         env_file = ".env"
+
+    @field_validator("ALLOWED_HOSTS", "ALLOWED_ORIGINS", mode="before")
+    @classmethod
+    def _parse_list_env(cls, value: Any) -> List[str]:
+        if value is None:
+            return []
+        if isinstance(value, list):
+            return value
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped == "":
+                return []
+            if stripped.startswith("["):
+                try:
+                    parsed = json.loads(stripped)
+                    if isinstance(parsed, list):
+                        return [str(item).strip() for item in parsed if str(item).strip()]
+                except json.JSONDecodeError:
+                    pass
+            return [item.strip() for item in stripped.split(",") if item.strip()]
+        return [str(value).strip()]
 
 
 settings = Settings()
