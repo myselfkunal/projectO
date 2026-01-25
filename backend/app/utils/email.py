@@ -11,13 +11,11 @@ async def send_verification_email(email: str, token: str, username: str) -> bool
     """Send email verification link using SendGrid"""
     try:
         if not settings.SENDGRID_API_KEY:
-            logger.warning("SendGrid API key missing; printing token to logs instead")
+            if settings.ENVIRONMENT == "production":
+                logger.error("SendGrid API key missing; cannot send verification email in production")
+                return False
+            logger.warning("SendGrid API key missing; logging token for development only")
             logger.info(f"🔐 VERIFICATION TOKEN FOR {email}: {token}")
-            print(f"\n{'='*60}")
-            print(f"VERIFICATION TOKEN FOR {email}")
-            print(f"Token: {token}")
-            print(f"Username: {username}")
-            print(f"{'='*60}\n")
             return True
 
         verification_link = f"{settings.FRONTEND_URL}/verify?token={token}"
@@ -76,7 +74,10 @@ async def send_password_reset_email(email: str, token: str, username: str) -> bo
     """Send password reset email using SendGrid"""
     try:
         if not settings.SENDGRID_API_KEY:
-            logger.warning("SendGrid API key missing; printing reset token to logs")
+            if settings.ENVIRONMENT == "production":
+                logger.error("SendGrid API key missing; cannot send password reset email in production")
+                return False
+            logger.warning("SendGrid API key missing; logging reset token for development only")
             logger.info(f"🔐 PASSWORD RESET TOKEN FOR {email}: {token}")
             return True
 
@@ -127,7 +128,10 @@ async def send_login_otp_email(email: str, otp: str, username: str) -> bool:
     """Send login OTP email using SendGrid"""
     try:
         if not settings.SENDGRID_API_KEY:
-            logger.warning("SendGrid API key missing; printing login OTP to logs")
+            if settings.ENVIRONMENT == "production":
+                logger.error("SendGrid API key missing; cannot send login OTP email in production")
+                return False
+            logger.warning("SendGrid API key missing; logging OTP for development only")
             logger.info(f"🔐 LOGIN OTP FOR {email}: {otp}")
             return True
 
