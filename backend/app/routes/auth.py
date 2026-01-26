@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
 from sqlalchemy.orm import Session
 from datetime import timedelta
 import logging
@@ -19,6 +19,13 @@ from app.utils.email import send_verification_email, generate_verification_token
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+@router.options("/{path:path}")
+@limiter.exempt
+async def auth_options_handler(request: Request, path: str):
+    """Handle CORS preflight for auth routes"""
+    return Response(status_code=status.HTTP_200_OK)
 
 
 @router.post("/register", response_model=UserResponse)
