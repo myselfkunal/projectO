@@ -40,6 +40,7 @@ export const Call = () => {
   const isInitiatorRef = useRef<boolean>(false)
   const remoteReadyRef = useRef<boolean>(false)
   const offerSentRef = useRef<boolean>(false)
+  const pendingIceCandidatesRef = useRef<RTCIceCandidateInit[]>([])
 
   // Initialize call
   useEffect(() => {
@@ -83,12 +84,22 @@ export const Call = () => {
 
       await fetchCallInfo()
 
+      const mediaConstraints: MediaStreamConstraints = {
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        },
+        video: {
+          width: { ideal: 640, max: 1280 },
+          height: { ideal: 480, max: 720 },
+          frameRate: { ideal: 24, max: 30 }
+        }
+      }
+
       const getStream = async () => {
         try {
-          return await navigator.mediaDevices.getUserMedia({
-            video: true,
-            audio: true
-          })
+          return await navigator.mediaDevices.getUserMedia(mediaConstraints)
         } catch (err: any) {
           if (err?.name === 'NotReadableError' || err?.name === 'OverconstrainedError') {
             console.warn('Camera unavailable, falling back to audio-only')
@@ -242,9 +253,13 @@ export const Call = () => {
         console.log('Remote track received:', event.track.kind)
         if (event.streams && event.streams.length > 0) {
           setRemoteStream(event.streams[0])
-          setIsConnected(true)
-          setCallState(prev => (prev ? { ...prev, status: 'ongoing' } : prev))
+        } else {
+          const stream = new MediaStream()
+          stream.addTrack(event.track)
+          setRemoteStream(stream)
         }
+        setIsConnected(true)
+        setCallState(prev => (prev ? { ...prev, status: 'ongoing' } : prev))
       }
       
       // Handle ICE candidates
@@ -453,6 +468,13 @@ export const Call = () => {
       
       const pc = peerConnectionRef.current!
       await pc.setRemoteDescription(new RTCSessionDescription(offer))
+
+      if (pendingIceCandidatesRef.current.length > 0) {
+        for (const candidate of pendingIceCandidatesRef.current) {
+          await pc.addIceCandidate(new RTCIceCandidate(candidate))
+        }
+        pendingIceCandidatesRef.current = []
+      }
       
       const answer = await pc.createAnswer()
       await pc.setLocalDescription(answer)
@@ -472,6 +494,13 @@ export const Call = () => {
     try {
       if (peerConnectionRef.current) {
         await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(answer))
+
+        if (pendingIceCandidatesRef.current.length > 0) {
+          for (const candidate of pendingIceCandidatesRef.current) {
+            await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate))
+          }
+          pendingIceCandidatesRef.current = []
+        }
       }
     } catch (err) {
       console.error('Error handling answer:', err)
@@ -480,9 +509,14 @@ export const Call = () => {
 
   const handleICECandidate = async (candidate: any) => {
     try {
-      if (peerConnectionRef.current && candidate) {
-        await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate))
+      if (!candidate) return
+      const pc = peerConnectionRef.current
+      if (!pc) return
+      if (!pc.remoteDescription) {
+        pendingIceCandidatesRef.current.push(candidate)
+        return
       }
+      await pc.addIceCandidate(new RTCIceCandidate(candidate))
     } catch (err) {
       console.error('Error adding ICE candidate:', err)
     }
