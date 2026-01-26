@@ -20,13 +20,32 @@ from app.models.user import User, Call, BlockedUser, Report, VerificationToken
 
 # Custom CORS middleware that handles OPTIONS first
 class CORSPreflight(BaseHTTPMiddleware):
+    def is_origin_allowed(self, origin: str) -> bool:
+        """Check if origin is allowed (supports Cloudflare Pages preview deployments)"""
+        if not origin:
+            return False
+        # Check exact match first
+        if origin in settings.ALLOWED_ORIGINS:
+            return True
+        # Check for Cloudflare Pages subdomains (e.g., a0533223.projecto-6po.pages.dev)
+        for allowed in settings.ALLOWED_ORIGINS:
+            if "pages.dev" in allowed:
+                # Extract base domain (e.g., projecto-6po.pages.dev)
+                base_domain = allowed.replace("https://", "").replace("http://", "")
+                origin_domain = origin.replace("https://", "").replace("http://", "")
+                # Check if origin ends with .base_domain (preview deployment)
+                if origin_domain.endswith(f".{base_domain}") or origin_domain == base_domain:
+                    return True
+        return False
+    
     async def dispatch(self, request: Request, call_next):
         origin = request.headers.get("origin", "")
+        origin_allowed = self.is_origin_allowed(origin)
         
         # Handle preflight OPTIONS requests
         if request.method == "OPTIONS":
             response = Response(status_code=200)
-            if origin in settings.ALLOWED_ORIGINS:
+            if origin_allowed:
                 response.headers["Access-Control-Allow-Origin"] = origin
             response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
             response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept, Origin, X-Requested-With"
@@ -36,7 +55,7 @@ class CORSPreflight(BaseHTTPMiddleware):
         
         # For non-OPTIONS requests, proceed and add CORS headers to response
         response = await call_next(request)
-        if origin in settings.ALLOWED_ORIGINS:
+        if origin_allowed:
             response.headers["Access-Control-Allow-Origin"] = origin
             response.headers["Access-Control-Allow-Credentials"] = "true"
         return response
