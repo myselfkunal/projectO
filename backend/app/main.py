@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.openapi.utils import get_openapi
@@ -117,6 +117,23 @@ def custom_openapi():
     return app.openapi_schema
 
 app.openapi = custom_openapi
+
+# Handle OPTIONS requests early to avoid CORS preflight 400 errors
+@app.middleware("http")
+async def options_preflight_middleware(request: Request, call_next):
+    if request.method == "OPTIONS":
+        origin = request.headers.get("origin")
+        request_method = request.headers.get("access-control-request-method", "GET, POST, PUT, DELETE, OPTIONS, PATCH")
+        request_headers = request.headers.get("access-control-request-headers", "*")
+        response = Response(status_code=200)
+        if origin and origin in settings.ALLOWED_ORIGINS:
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Vary"] = "Origin"
+        response.headers["Access-Control-Allow-Methods"] = request_method
+        response.headers["Access-Control-Allow-Headers"] = request_headers
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        return response
+    return await call_next(request)
 
 # Add rate limiter
 app.state.limiter = limiter
