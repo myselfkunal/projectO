@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.openapi.utils import get_openapi
 from contextlib import asynccontextmanager
+from starlette.middleware.base import BaseHTTPMiddleware
 import asyncio
 import logging
 import logging.config
@@ -15,6 +16,30 @@ from app.core.limiter import limiter
 from app.core.sentry import init_sentry
 from app.routes import auth, users, calls, webrtc
 from app.models.user import User, Call, BlockedUser, Report, VerificationToken
+
+
+# Custom CORS middleware that handles OPTIONS first
+class CORSPreflight(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        origin = request.headers.get("origin", "")
+        
+        # Handle preflight OPTIONS requests
+        if request.method == "OPTIONS":
+            response = Response(status_code=200)
+            if origin in settings.ALLOWED_ORIGINS:
+                response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+            response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept, Origin, X-Requested-With"
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+            response.headers["Access-Control-Max-Age"] = "3600"
+            return response
+        
+        # For non-OPTIONS requests, proceed and add CORS headers to response
+        response = await call_next(request)
+        if origin in settings.ALLOWED_ORIGINS:
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+        return response
 
 # Initialize Sentry for error tracking
 init_sentry()
@@ -118,23 +143,6 @@ def custom_openapi():
 
 app.openapi = custom_openapi
 
-# Handle OPTIONS requests early to avoid CORS preflight 400 errors
-@app.middleware("http")
-async def options_preflight_middleware(request: Request, call_next):
-    if request.method == "OPTIONS":
-        origin = request.headers.get("origin")
-        request_method = request.headers.get("access-control-request-method", "GET, POST, PUT, DELETE, OPTIONS, PATCH")
-        request_headers = request.headers.get("access-control-request-headers", "*")
-        response = Response(status_code=200)
-        if origin and origin in settings.ALLOWED_ORIGINS:
-            response.headers["Access-Control-Allow-Origin"] = origin
-            response.headers["Vary"] = "Origin"
-        response.headers["Access-Control-Allow-Methods"] = request_method
-        response.headers["Access-Control-Allow-Headers"] = request_headers
-        response.headers["Access-Control-Allow-Credentials"] = "true"
-        return response
-    return await call_next(request)
-
 # Add rate limiter
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
@@ -143,16 +151,8 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 logger.info(f"ALLOWED_ORIGINS: {settings.ALLOWED_ORIGINS}")
 logger.info(f"ALLOWED_ORIGINS type: {type(settings.ALLOWED_ORIGINS)}")
 
-# Add CORS middleware with hardened settings
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.ALLOWED_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-    allow_headers=["*"],
-    expose_headers=["*"],
-    max_age=3600,
-)
+# Add custom CORS middleware (runs FIRST, handles OPTIONS before anything else)
+app.add_middleware(CORSPreflight)
 
 # Add error handling middleware
 @app.middleware("http")
