@@ -122,13 +122,18 @@ app.openapi = custom_openapi
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+# Log CORS configuration
+logger.info(f"ALLOWED_ORIGINS: {settings.ALLOWED_ORIGINS}")
+logger.info(f"ALLOWED_ORIGINS type: {type(settings.ALLOWED_ORIGINS)}")
+
 # Add CORS middleware with hardened settings
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
+    expose_headers=["*"],
     max_age=3600,
 )
 
