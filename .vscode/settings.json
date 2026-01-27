@@ -1,0 +1,9 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "git -C \"C:\\Users\\KIIT\\Desktop\\projectO\"": true,
+        "ForEach-Object": true,
+        "git add": true,
+        "git commit": true,
+        "git push": true
+    }
+}
